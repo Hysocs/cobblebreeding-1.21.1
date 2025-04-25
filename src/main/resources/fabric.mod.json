@@ -1,0 +1,54 @@
+{
+	"schemaVersion": 1,
+	"id": "cobblebreeding",
+	"version": "${version}",
+	"name": "CobbleBreeding",
+	"description": "This is an example description! Tell everyone what your mod is about!",
+	"authors": [
+		"Me!"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/cobblebreeding/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			{
+				"value": "com.cobblebreeding.CobblemonBreeding",
+				"adapter": "kotlin"
+			}
+		],
+		"client": [
+			{
+				"value": "com.cobblebreeding.CobbleBreedingClient",
+				"adapter": "kotlin"
+			}
+		],
+		"fabric-datagen": [
+			{
+				"value": "com.cobblebreeding.CobbleBreedingDataGenerator",
+				"adapter": "kotlin"
+			}
+		]
+	},
+	"mixins": [
+		"cobblebreeding.mixins.json",
+		{
+			"config": "cobblebreeding.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.16.13",
+		"minecraft": "~1.21.1",
+		"java": ">=21",
+		"fabric-api": "*",
+		"fabric-language-kotlin": "*"
+	},
+	"suggests": {
+		"another-mod": "*"
+	}
+}

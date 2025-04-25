@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "package": "com.cobblebreeding.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "MobEntityAccessor",
+    "PastureBlockMixin",
+    "PokemonPastureBlockEntityMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+	}
+}
