@@ -1,0 +1,46 @@
+{
+  "implemented": true,
+  "name": "Egg",
+  "nationalPokedexNumber": 9999,
+  "primaryType": "normal",
+  "abilities": [],
+  "baseStats": {
+    "hp": 10, "attack": 5, "defence": 5, "special_attack": 5, "special_defence": 5, "speed": 5
+  },
+  "behaviour": {
+    "moving": { "canLook": false, "walk": { "canWalk": false }, "fly": { "canFly": false }, "swim": { "canSwimInWater": false, "canBreatheUnderwater": false } },
+    "resting": { "canSleep": false }
+  },
+  "catchRate": 0,
+  "maleRatio": -1,
+  "shoulderMountable": false,
+  "forms": [
+    {
+      "name": "Default",
+      "primary": true,
+      "aspects": [],
+      "poser": "cobblemon:egg",
+      "model": "cobblemon:egg.geo",
+      "texture": "cobblemon:textures/pokemon/egg/egg.png",
+      "layers": []
+    }
+  ],
+  "baseExperienceYield": 0,
+  "experienceGroup": "slow",
+  "eggCycles": 1,
+  "eggGroups": [],
+  "drops": {},
+  "moves": [
+    "1:splash"
+  ],
+  "labels": ["custom", "egg"],
+  "hitbox": {
+    "width": 0.5,
+    "height": 0.5,
+    "fixed": true
+  },
+  "baseFriendship": 0,
+  "evYield": {},
+  "height": 3,
+  "weight": 10
+}
