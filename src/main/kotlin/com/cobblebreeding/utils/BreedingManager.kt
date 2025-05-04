@@ -4,6 +4,7 @@ import com.cobblebreeding.BreedingState
 import com.cobblebreeding.CobblemonBreeding
 import com.cobblebreeding.mixin.MobEntityAccessor
 import com.cobblemon.mod.common.Cobblemon
+import com.cobblemon.mod.common.api.pokemon.PokemonProperties
 import com.cobblemon.mod.common.api.pokemon.PokemonSpecies
 import com.cobblemon.mod.common.block.entity.PokemonPastureBlockEntity
 import com.cobblemon.mod.common.entity.pokemon.PokemonEntity
@@ -11,7 +12,6 @@ import com.cobblemon.mod.common.net.messages.client.pasture.PokemonPasturedPacke
 import com.cobblemon.mod.common.pokemon.Gender
 import com.cobblemon.mod.common.pokemon.Pokemon
 import com.cobblemon.mod.common.pokemon.Species
-
 import net.minecraft.entity.ai.goal.Goal
 import net.minecraft.entity.mob.MobEntity
 import net.minecraft.particle.ParticleTypes
@@ -25,7 +25,9 @@ import net.minecraft.util.Identifier
 import net.minecraft.util.math.BlockPos
 import net.minecraft.util.math.Box
 import net.minecraft.util.math.Vec3d
+import net.minecraft.util.math.Vec3i
 import java.util.*
+import java.util.EnumSet
 
 object BreedingManager {
 
@@ -41,8 +43,7 @@ object BreedingManager {
     const val TARGET_SPECIES_NBT_KEY = "target_species"
     const val EGG_NBT_KEY = "is_egg"
 
-    fun tickBreedingProcess(pasturePos: BlockPos, state: BreedingState) {
-        val world = state.world ?: return
+    fun tickBreedingProcess(world: ServerWorld, pasturePos: BlockPos, state: BreedingState) {
         if (world.time % TICK_THROTTLE != 0L) return
 
         val pastureBlockEntity = world.getBlockEntity(pasturePos) as? PokemonPastureBlockEntity ?: return
@@ -71,7 +72,6 @@ object BreedingManager {
                     state.jumpCount = 0
                     state.lastJumpTick = 0L
                     state.heartsPlayed = false
-                    state.world = world
                     break
                 }
             }
@@ -137,7 +137,7 @@ object BreedingManager {
                     val ownerUUID = femaleTether.playerId
                     val ownerPlayer = world.server.getPlayerManager().getPlayer(ownerUUID)
                     if (ownerPlayer != null) {
-                        val success = generateAndAddEggToPasture(pasturePos, state, ownerPlayer)
+                        val success = generateAndAddEggToPasture(world, pasturePos, state, ownerPlayer)
                         cancelBreeding(state, maleEntity, femaleEntity)
                     } else {
                         println("${CobblemonBreeding.MOD_ID} INFO: Owner of breeding Pokémon offline. Cancelling breeding at $pasturePos.")
@@ -152,7 +152,9 @@ object BreedingManager {
     }
 
     private fun getPokemonEntityByPokemonUUID(world: ServerWorld, pastureBlockEntity: PokemonPastureBlockEntity, pokemonUuid: UUID): PokemonEntity? {
-        val searchBox = Box(Vec3d.of(pastureBlockEntity.minRoamPos), Vec3d.of(pastureBlockEntity.maxRoamPos.add(1, 1, 1)))
+        val minPos = pastureBlockEntity.minRoamPos ?: pastureBlockEntity.pos.add(-5, -5, -5)
+        val maxPos = pastureBlockEntity.maxRoamPos ?: pastureBlockEntity.pos.add(5, 5, 5)
+        val searchBox = Box(Vec3d.of(minPos), Vec3d.of(maxPos.add(1, 1, 1)))
         val potentialEntities = world.getEntitiesByClass(PokemonEntity::class.java, searchBox) { entity ->
             entity.pokemon?.uuid == pokemonUuid
         }
@@ -160,8 +162,7 @@ object BreedingManager {
     }
 
 
-    fun generateAndAddEggToPasture(pasturePos: BlockPos, state: BreedingState, player: ServerPlayerEntity): Boolean {
-        val world = state.world ?: return false
+    fun generateAndAddEggToPasture(world: ServerWorld, pasturePos: BlockPos, state: BreedingState, player: ServerPlayerEntity): Boolean {
         val pastureBlockEntity = world.getBlockEntity(pasturePos) as? PokemonPastureBlockEntity ?: return false
 
         val maxTotalPokemon = pastureBlockEntity.getMaxTethered()
@@ -182,36 +183,38 @@ object BreedingManager {
             return false
         }
 
-        val customEggSpecies = PokemonSpecies.getByIdentifier(EGG_SPECIES_ID) ?: run {
-            println("${CobblemonBreeding.MOD_ID} ERROR: Could not find cobblemon:egg species!")
-            return false
-        }
-
-        val parentSpeciesHeight = femalePokemon.species.height.toFloat()
-        val parentScaleModifier = femalePokemon.scaleModifier
-        val effectiveParentHeight = parentSpeciesHeight * parentScaleModifier
-
-        // Define a normalization divisor - adjust this based on average Pokemon height and desired average egg scale
-        val normalizationDivisor = 15.0f
-        val calculatedScale = effectiveParentHeight / normalizationDivisor
-
-        // Clamp the final scale to prevent extreme sizes
-        val desiredEggScale = calculatedScale.coerceIn(0.3f, 1.2f) // Adjust min/max as needed
+        val eggSpeciesIdentifierPath = EGG_SPECIES_ID.path
 
         val targetSpecies: Species = femalePokemon.species
         val targetSpeciesIdString = targetSpecies.showdownId()
 
-        val eggPokemon = Pokemon().apply {
-            species = customEggSpecies
-            level = 1
-            persistentData.putBoolean(EGG_NBT_KEY, true)
-            persistentData.putString(TARGET_SPECIES_NBT_KEY, targetSpeciesIdString)
-            setOriginalTrainer(player.uuid)
-            nickname = Text.literal("${targetSpecies.name} Egg")
-            this.scaleModifier = desiredEggScale
+        val primaryType = targetSpecies.primaryType
+        val typeAspect = primaryType.name.lowercase(Locale.ROOT)
+
+        val parentSpeciesHeight = femalePokemon.species.height.toFloat()
+        val parentScaleModifier = femalePokemon.scaleModifier
+        val effectiveParentHeight = parentSpeciesHeight * parentScaleModifier
+        val normalizationDivisor = 15.0f
+        val calculatedScale = effectiveParentHeight / normalizationDivisor
+        val desiredEggScale = calculatedScale.coerceIn(0.3f, 1.2f)
+
+        val propertiesString = "$eggSpeciesIdentifierPath level=1 aspect=$typeAspect"
+        val properties = PokemonProperties.parse(propertiesString)
+        val eggEntity = properties.createEntity(world)
+
+        if (eggEntity == null) {
+            println("${CobblemonBreeding.MOD_ID} ERROR: Failed to create egg entity from properties: $propertiesString")
+            return false
         }
 
-        val eggEntity = PokemonEntity(world, pokemon = eggPokemon)
+        val eggPokemon = eggEntity.pokemon
+
+        eggPokemon.persistentData.putBoolean(EGG_NBT_KEY, true)
+        eggPokemon.persistentData.putString(TARGET_SPECIES_NBT_KEY, targetSpeciesIdString)
+        eggPokemon.setOriginalTrainer(player.uuid)
+        eggPokemon.nickname = Text.literal("${targetSpecies.name} Egg")
+        eggPokemon.scaleModifier = desiredEggScale
+
         val spawnPosVec = pasturePos.toCenterPos()
         eggEntity.refreshPositionAndAngles(spawnPosVec.x, spawnPosVec.y, spawnPosVec.z, world.random.nextFloat() * 360.0f, 0.0f)
 
@@ -228,8 +231,8 @@ object BreedingManager {
         eggPokemon.tetheringId = newTetheringId
 
         val eggTethering = PokemonPastureBlockEntity.Tethering(
-            minRoamPos = pastureBlockEntity.minRoamPos,
-            maxRoamPos = pastureBlockEntity.maxRoamPos,
+            minRoamPos = pastureBlockEntity.minRoamPos ?: pastureBlockEntity.pos.add(-5,-5,-5), // Add fallback
+            maxRoamPos = pastureBlockEntity.maxRoamPos ?: pastureBlockEntity.pos.add(5,5,5),   // Add fallback
             playerId = player.uuid,
             playerName = player.gameProfile.name,
             tetheringId = newTetheringId,
@@ -254,6 +257,7 @@ object BreedingManager {
         player.sendMessage(Text.literal("A Pokémon Egg has been added to the pasture!").formatted(Formatting.GREEN), false)
         return true
     }
+
     private fun calculateMeetingPoint(entity1: PokemonEntity, entity2: PokemonEntity): Vec3d {
         val avgX = (entity1.x + entity2.x) / 2.0
         val avgZ = (entity1.z + entity2.z) / 2.0
@@ -276,12 +280,10 @@ object BreedingManager {
         return Vec3d(avgX, groundY, avgZ)
     }
 
-    fun checkForInitialBreeders(pastureBlockEntity: PokemonPastureBlockEntity, state: BreedingState) {
+    fun checkForInitialBreeders(world: ServerWorld, pastureBlockEntity: PokemonPastureBlockEntity, state: BreedingState) {
         if (state.breedingStartTick != null) {
             return
         }
-
-        val world = state.world ?: return
 
         val tetheredPokemon = pastureBlockEntity.tetheredPokemon
         if (tetheredPokemon.size < 2) return
@@ -314,13 +316,12 @@ object BreedingManager {
                 state.lastJumpTick = 0L
                 state.heartsPlayed = false
 
-                println("${CobblemonBreeding.MOD_ID} INFO: Found initial breeding pair (${maleTether.getPokemon()?.species?.name}) at ${pastureBlockEntity.pos} on load. Starting process.")
+                println("${CobblemonBreeding.MOD_ID} INFO: Found initial breeding pair (${maleTether.getPokemon()?.species?.name}) at ${pastureBlockEntity.pos} in world ${world.registryKey.value} on load. Starting process.")
 
                 return
             }
         }
     }
-
 
     private fun addWalkGoalIfNotPresent(entity: PokemonEntity, targetPos: Vec3d) {
         val mobEntity = entity as? MobEntity ?: return

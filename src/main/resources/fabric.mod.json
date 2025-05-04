@@ -3,15 +3,14 @@
 	"id": "cobblebreeding",
 	"version": "${version}",
 	"name": "CobbleBreeding",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"description": "Cobblebreeding is a Minecraft Fabric mod that offers customizable breeding for cobblemon",
 	"authors": [
-		"Me!"
+		"Hysocs"
 	],
 	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
+		"discord": "https://discord.gg/KQyPEye7CT"
 	},
-	"license": "CC0-1.0",
+	"license": "GNU Lesser General Public License v3",
 	"icon": "assets/cobblebreeding/icon.png",
 	"environment": "*",
 	"entrypoints": {
@@ -42,7 +41,7 @@
 		}
 	],
 	"depends": {
-		"fabricloader": ">=0.16.13",
+		"fabricloader": ">=0.14.13",
 		"minecraft": "~1.21.1",
 		"java": ">=21",
 		"fabric-api": "*",
