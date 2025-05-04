@@ -35,44 +35,7 @@ public abstract class PastureBlockMixin {
             BlockHitResult hit,
             CallbackInfoReturnable<ActionResult> cir) {
 
-        if (!world.isClient && player instanceof ServerPlayerEntity serverPlayer) {
 
-            PastureBlock self = (PastureBlock) (Object) this;
-            BlockPos basePos = self.getBasePosition(state, pos);
-
-            // --- Check if the clicked block IS the base/bottom block ---
-            if (pos.equals(basePos)) {
-                LOGGER.info("======================================================");
-                LOGGER.info("Pasture Block BOTTOM half clicked at {}. Triggering Breeding Nest GUI.", pos);
-                LOGGER.info("Player: {}", serverPlayer.getName().getString());
-
-                // --- Breeding Nest Logic ---
-                if (!serverPlayer.hasPermissionLevel(CobblemonBreeding.PERM_LEVEL_INTERACT)) {
-                    serverPlayer.sendMessage(Text.literal("You do not have permission to interact with this Breeding Nest.").formatted(Formatting.RED), false);
-                    cir.setReturnValue(ActionResult.FAIL); // Fail interaction
-                    LOGGER.info("Interaction Cancelled: No Permission");
-                    LOGGER.info("======================================================");
-                    return;
-                }
-
-                // basePos is the correct position for the GUI context
-                LOGGER.info("Opening GUI for basePos: {}", basePos);
-                Objects.requireNonNull(serverPlayer.getServer()).execute(() -> {
-                    // *** FIX: Provide the 3rd argument (requestedPage = 0) ***
-                    CobblemonBreeding.INSTANCE.openNestGui(serverPlayer, basePos);
-                });
-
-                // Success: Cancel Cobblemon's default interaction for the bottom block
-                cir.setReturnValue(ActionResult.SUCCESS);
-                LOGGER.info("Interaction Handled by Breeding Mod. Returned SUCCESS.");
-                LOGGER.info("======================================================");
-
-            } else {
-                // Top half was clicked
-                LOGGER.debug("Top half of Pasture Block clicked at {}. Allowing default Cobblemon interaction.", pos);
-                // Let the original onUse method continue
-            }
-        }
         // If on client or not ServerPlayer, do nothing.
     }
 }

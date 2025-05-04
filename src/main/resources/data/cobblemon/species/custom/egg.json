@@ -3,7 +3,9 @@
   "name": "Egg",
   "nationalPokedexNumber": 9999,
   "primaryType": "normal",
-  "abilities": [],
+  "abilities": [
+    "synchronize"
+  ],
   "baseStats": {
     "hp": 10, "attack": 5, "defence": 5, "special_attack": 5, "special_defence": 5, "speed": 5
   },
