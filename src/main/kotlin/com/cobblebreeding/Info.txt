@@ -1,152 +1,68 @@
-# Mod Concept & Feature Guide: Project Cobblemon Mastery
-
-## I. Core Vision Summary
-
-Develop the *ultimate* Cobblemon server experience focused on two pillars: **deep, rewarding breeding mechanics** and **high-stakes competitive battling**. The overarching goal is to provide a long-term path to mastery and success, where dedicated effort in breeding translates directly into competitive viability.
-
-## II. Core Gameplay Loops
-
-The mod centers around interconnected systems designed to drive player engagement and retention:
-
-1.  **Primary Loop (Breed -> Compete):**
-    * **Breeding Focus:** Players invest significant time and resources into breeding Pokémon to achieve perfect or specific IVs. This is the *primary* method for obtaining competitively viable Pokémon.
-    * **Competitive Payoff:** The main goal and reward for successful breeding is competing and succeeding in regular Server Tournaments.
-
-2.  **Secondary Loop (Hunt -> Resource -> Support):**
-    * **Resource Acquisition:** Players engage in "Hunts" (facilitated by Biome Warps) to gather essential resources like currency, TMs, evolution items, and potentially breeding-specific items.
-    * **Supporting the Grind:** This loop directly fuels the breeding process, provides shorter-term goals, and integrates with other systems like Daily Crates.
-
-3.  **Daily Engagement Loop (Login -> Engage -> Reward):**
-    * **Incentivized Logins:** Daily systems like Login Crates and the Safari Zone encourage players to log in consistently.
-    * **Short-Burst Activity:** Provides valuable rewards and exciting, time-limited activities catering to both dedicated and casual players.
-
-## III. Key Feature Implementation Guide
-
-This section outlines the core features needed for the mod, integrating concepts from the vision and refining based on the provided breeding guide.
-
-**1. Enhanced Breeding System:**
-
-* **Goal:** Implement a deep, time-intensive breeding system that is the *primary* source of high/perfect IV Pokémon. Make finding high-IV Pokémon in the wild *extremely rare*.
-* **Mechanics (To Be Developed/Modified):**
-    * **Core Principle:** While the provided guide outlines *base* Cobblemon mechanics (average IVs +/- RNG, total IV cap), this mod should potentially *override or enhance* these to create a "deeper" or more deterministic feel, rewarding consistent effort. Consider if the base RNG fits the "mastery" goal or if systems allowing more direct IV control/locking are needed.
-    * **Time Investment:** Maintain the significant time commitment (e.g., 20 mins per egg, 10 mins hatch = 30 mins total cycle per pair) as a baseline, adjustable based on final mechanics.
-    * **IV Inheritance:** Implement the core loop of averaging parent IVs but refine the modification step (increase/decrease chance/amount) to align with the mod's desired depth and progression speed.
-    * **Total IV Cap:** Retain or modify the concept of a total IV cap that increases as parent quality improves, acting as a progression gate.
-    * **Targeted Breeding:** Implement or ensure functionality of **Held Items** that allow players to focus breeding efforts on *specific* IVs (increasing the chance of improvement for that stat while potentially allowing others to decrease or stay). These items are crucial for strategic breeding.
-    * **Pasture Requirements:** Define base building/setup requirements for efficient breeding (linking to resource investment).
-* **Required Features:**
-    * Custom Breeding Logic Handler (potentially overrides Cobblemon default).
-    * Implementation/modification of Breeding Held Items.
-    * Override for wild Pokémon IV generation to ensure low base IVs are standard.
-    * Clear in-game IV checker tool/display.
-    * Pasture block/mechanic implementation.
-
-**2. Server Tournaments:**
-
-* **Goal:** Provide the primary high-stakes objective and reward for breeding investment.
-* **Features:**
-    * Regularly scheduled automated tournaments (e.g., daily, weekly, monthly tiers).
-    * Bracket system (e.g., single/double elimination, round-robin qualifiers).
-    * Potential matchmaking/ranking system (Elo?).
-    * Spectator mode.
-    * Automated reward distribution: Server Currency, Rare Items (e.g., specific Held Items, unique TMs), exclusive Cosmetics, Prestige (Titles, chat flair).
-* **Required Features:**
-    * Event scheduling system.
-    * Tournament management logic (match generation, results tracking).
-    * Integration with the economy and item systems for rewards.
-    * UI for viewing schedules, brackets, participating, and potentially spectating.
-
-**3. Hunt System:**
-
-* **Goal:** Provide reliable methods for acquiring currency and essential items supporting the primary breeding loop. Offer shorter-term gameplay objectives.
-* **Features:**
-    * Define "Hunts": Targeted Pokémon defeat/capture bounties? Resource gathering quests in specific biomes? Item retrieval tasks?
-    * System for players to view, accept, and track active Hunts (GUI preferred).
-    * Rewards upon completion: Server Currency, TMs, Evolution Items, Breeding Items (if any), potentially Crate Keys.
-    * Difficulty/Tier scaling for Hunts?
-* **Required Features:**
-    * Quest/Bounty definition and management system.
-    * NPC or GUI for Hunt interaction.
-    * Reward distribution logic linked to economy/item systems.
-    * Integration with Biome Warps (Hunts may direct players to specific biomes).
-
-**4. Biome Warps:**
-
-* **Goal:** Make resource gathering and accessing Hunt locations more convenient, reducing travel time.
-* **Features:**
-    * Method for quick travel to designated points within various biomes (e.g., via commands `/warp biome <name>`, consumable items, interactable map/block).
-    * Consider access: Are warps free? Do they cost currency? Require discovery? Need fuel?
-* **Required Features:**
-    * Teleportation logic handler.
-    * Warp point management (adding, removing, permissions).
-    * User interface/command for accessing warps.
-
-**5. Daily Login & Crate System:**
-
-* **Goal:** Encourage daily logins and provide consistent rewards. Offer desirable items through an earnable system.
-* **Features:**
-    * Automatic granting of 1 **Daily Login Key** per player upon first login each day.
-    * Keys must be **100% earnable** through other gameplay: Awarded from Hunts, Tournaments, specific events, potentially rare drops.
-    * Crate Blocks/Items that require a Key to open.
-    * Defined Loot Tables for Crates: Mix of useful items (TMs, Evo items, Poke Balls), server currency, exclusive Cosmetics, and potentially rare drops (e.g., low chance for high-value items, rare Pokémon eggs?).
-* **Required Features:**
-    * Player data tracking for daily logins.
-    * Key item implementation and distribution logic.
-    * Crate block/item with opening mechanic and loot table integration.
-    * System for awarding keys via other gameplay loops (Hunts, Tournaments).
-
-**6. Daily Safari Zone:**
-
-* **Goal:** Create a high-energy, time-limited daily event driving concurrent logins and player interaction/competition.
-* **Features:**
-    * A specific zone/area designated as the Safari Zone.
-    * Timed Event: Activates once per day for a set duration (e.g., 1 hour).
-    * Controlled Spawns: During the event, a **fixed, limited total number** of specific desirable/rare Pokémon spawn within the zone (e.g., only 50 Dragonite total will spawn during the hour across the entire zone).
-    * "First Come, First Served": Once the spawn cap for a species is hit, it no longer spawns for that event duration.
-    * Clear server-wide announcements for event start, remaining time, potentially key captures/remaining counts.
-* **Required Features:**
-    * Event scheduling and timing system.
-    * Zone definition and management (possibly a dedicated dimension or region).
-    * Custom spawner logic capable of tracking and enforcing total spawn limits per species for the event duration.
-    * Broadcasting system for announcements.
-
-**7. Economy & Core Items:**
-
-* **Goal:** Establish the flow of currency and essential items within the server ecosystem.
-* **Features:**
-    * Define the primary **Server Currency**.
-    * Identify Currency Sources: Hunts, Tournaments, Selling items(?).
-    * Identify Currency Sinks: Shop items, Biome Warps (if cost-based), Cosmetics(?), Trading(?).
-    * Implement necessary Items: Breeding Held Items, TMs, Evolution Items, Crate Keys, Cosmetics, potentially specific Hunt/Safari items.
-* **Required Features:**
-    * Economy API integration (e.g., Vault) or a custom economy system.
-    * Registration and functionality for all custom items.
-
-**8. User Interface & Quality of Life:**
-
-* **Goal:** Provide clear information and easy interaction with mod features.
-* **Features:**
-    * Enhanced IV display (e.g., `/checkivs` command, display in Pokémon summary/PC).
-    * GUIs for: Hunt selection/tracking, Tournament info/signup, Crate opening visualization, Biome Warp selection (if applicable).
-    * Clear feedback on breeding timers and progress.
-* **Required Features:**
-    * GUI development framework.
-    * Command registration and handling.
-    * Integration with breeding/event systems for real-time info display.
-
-## IV. Synergy & Player Experience
-
-The interconnectedness of these systems is key. Breeding provides the Pokémon for Tournaments. Tournaments provide top-tier rewards. Hunts fuel Breeding and provide Crate Keys. Crates offer supplementary rewards and cosmetics. Daily events (Crates, Safari) ensure players have reasons to log in frequently, even if not engaging in long breeding sessions. This structure aims to cater to:
-
-* **Dedicated Grinders:** Primarily focused on the Breed -> Compete loop, using Hunts for support.
-* **Casual Players:** Can engage with Daily Crates, Safari Zone, and potentially lower-tier Hunts/Tournaments for steady progress and enjoyment.
-
-## V. Notes on Provided Breeding Guide
-
-* The provided "Cobblemon Breeding Guide" is an excellent *explanation* of potential mechanics, focusing on achieving specific or maxed IVs through targeted effort and parent replacement.
-* **Crucially:** This guide describes *base* Cobblemon mechanics (or an assumed version). The *mod* needs to *implement* or *modify* these mechanics to match the "deep breeding" vision. The exact probabilities (15% increase, 35% decrease) and averaging might be adjusted.
-* **Time Estimates:** The time estimates (44 hours for specific, 87.5 hours for maxed) are valuable *benchmarks* derived from the described mechanics. The actual time investment in the mod will depend on the *final implemented breeding mechanics*. Use these as a reference point for balancing the mod's progression speed.
-* **Held Items:** The guide correctly identifies Held Items as critical for targeted breeding. Their implementation and acquisition (e.g., via Hunts, Crates, Shops) are essential mod features.
-* **Total IV Cap:** The concept of a total IV cap is a good progression mechanic to include.
-
-This guide provides a framework. Each feature requires detailed design and implementation, focusing on how they interact to create the desired cohesive and engaging player experience.
+Cobblemon Breeding: A Comprehensive Guide
+Welcome to breeding in Cobblemon! This guide explains how to breed Pokémon in your pasture, how stats (IVs) and Natures are passed down, and how specific held items can influence the outcome to help you breed powerful Pokémon.
+I. Getting Started: The Pasture and Compatibility
+The Pasture Block: Breeding takes place within the area designated by a Pokémon Pasture Block. Pokémon tethered to this block can potentially breed.
+Compatibility: For two Pokémon to breed, they generally need to:
+Be of the opposite gender (Male and Female).
+Belong to the same species. (Note: Egg group compatibility, like in standard Pokémon games, might be added later but currently, the check is primarily species-based).
+Ditto compatibility is not covered in the current implementation.
+Initiating Breeding: Simply place a compatible male and female Pokémon within the same pasture. The system will automatically detect them and initiate the breeding process after a short delay. You'll see them perform animations (walking, jumping, hearts) over time.
+II. Inheritance: Passing Down Traits
+When an egg is produced, it inherits traits from its parents. Here's how IVs and Natures are determined:
+A. IV (Individual Value) Inheritance
+IVs are hidden values (0-31) that determine a Pokémon's base stats. Higher IVs mean better stats.
+Base Inheritance (No Destiny Knot):
+The offspring inherits exactly three IVs directly from its parents.
+Process:
+The game randomly selects three different stats (e.g., HP, Defense, Speed) out of the six possible stats.
+For each of these three chosen stats, the offspring randomly inherits the IV value from either the male parent (50% chance) or the female parent (50% chance). It takes the parent's exact IV value for that stat.
+The remaining three stats that were not selected for inheritance will have their IVs generated completely randomly (a value between 0 and 31).
+Destiny Knot:
+Effect: If either the male or female parent is holding a Destiny Knot (Item ID: cobblemon:destiny_knot), the inheritance changes significantly.
+The offspring now inherits exactly five IVs directly from its parents.
+Process:
+The game randomly selects five different stats out of the six.
+For each of these five chosen stats, the offspring randomly inherits the IV value from either the male parent (50% chance) or the female parent (50% chance).
+The remaining one stat that was not selected will have its IV generated completely randomly (0-31).
+Note: Only one parent needs to hold the Destiny Knot. Having both hold it provides no additional benefit over just one.
+B. Nature Inheritance
+Nature affects how a Pokémon's stats grow (increasing one stat by 10% while decreasing another by 10%, or being neutral).
+Base Inheritance (No Everstone):
+If neither parent is holding an Everstone, the offspring receives a completely random Nature.
+Everstone:
+Effect: If a parent is holding an Everstone (Item ID: cobblemon:everstone), it guarantees Nature inheritance.
+Process:
+If only one parent holds an Everstone, the offspring is guaranteed to have the same Nature as that parent.
+If both parents hold an Everstone, the offspring has a 50% chance of inheriting the male parent's Nature and a 50% chance of inheriting the female parent's Nature.
+III. Held Items: Influencing Inheritance
+Besides Destiny Knot and Everstone, Power Items directly influence IV inheritance:
+Power Items: These items force the offspring to inherit a specific IV from the parent holding the item.
+Power Weight (cobblemon:power_weight): Guarantees HP IV inheritance.
+Power Bracer (cobblemon:power_bracer): Guarantees Attack IV inheritance.
+Power Belt (cobblemon:power_belt): Guarantees Defense IV inheritance.
+Power Lens (cobblemon:power_lens): Guarantees Special Attack IV inheritance.
+Power Band (cobblemon:power_band): Guarantees Special Defense IV inheritance.
+Power Anklet (cobblemon:power_anklet): Guarantees Speed IV inheritance.
+How Power Items Interact with Inheritance:
+Guaranteed Stat: The stat corresponding to the Power Item is always inherited from the parent holding it. This counts as one of the inherited IVs (one of the 3 base, or one of the 5 if Destiny Knot is also used).
+Remaining Inheritance: The rest of the IVs are inherited following the standard rules:
+Power Item Only: The guaranteed stat is locked. The game then randomly selects 2 other different stats to inherit randomly from either parent (from the remaining 5 available stats). The final 3 stats are random.
+Power Item + Destiny Knot (on other parent): The guaranteed stat is locked. The Destiny Knot then ensures 4 other different stats are selected randomly from the remaining 5 available stats. Each of these 4 is inherited randomly from either parent. The final (6th) stat is random.
+Two Different Power Items (one on each parent): The two stats corresponding to the Power Items are guaranteed from their respective parents. If a Destiny Knot is not involved, 1 other different stat is randomly selected from the remaining 4 stats and inherited randomly from a parent. The final 3 stats are random. If a Destiny Knot is involved, 3 other different stats are randomly selected from the remaining 4 stats and inherited randomly. The final (6th) stat is random.
+Power Item + Everstone: These work independently. The Power Item guarantees its IV, and the Everstone guarantees its Nature.
+IV. The Breeding Strategy: Achieving Perfection
+The key to getting Pokémon with high IVs (ideally 31 in desired stats) and the right Nature is an iterative process:
+Start: Begin with a compatible pair. Check their IVs and Natures.
+Target: Decide which stats you want to maximize and which Nature you need.
+Use Items:
+Give an Everstone to a parent with the desired Nature to lock it in.
+Give a Destiny Knot to one parent (usually the one not holding the Everstone) to increase the number of inherited IVs to 5.
+Optionally, use a Power Item on a parent that has a perfect (31) IV in a stat you absolutely want to pass down, especially early on.
+Breed: Let them produce eggs.
+Hatch & Check: Hatch the offspring and check their IVs and Nature.
+Replace & Repeat: If an offspring has:
+The correct Nature (thanks to Everstone).
+Better IVs in one or more stats compared to the parent of the same gender (while not losing other good IVs you've already secured).
+Then, replace the parent with the superior offspring.
+Continue: Keep repeating steps 4-6. With each replacement using a better offspring, the overall quality of the parents' combined IV pool increases, making it progressively more likely that future offspring will inherit multiple high IVs.
+This process takes time and patience, but by strategically using held items and replacing parents with better offspring, you can gradually breed Pokémon with near-perfect or perfect IVs and the ideal Nature for competitive battling or personal satisfaction!
