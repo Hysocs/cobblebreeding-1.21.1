@@ -32,7 +32,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import java.util.List;
 import java.util.UUID;
 
-@Mixin(PastureBlock.class)
+@Mixin(value = PastureBlock.class, remap = false)
 public abstract class PastureBlockMixin {
 
     private static final String EGG_NBT_KEY = "is_egg";

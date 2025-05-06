@@ -3,6 +3,7 @@
   "package": "com.cobblebreeding.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "BattleRegistryMixin",
     "MobEntityAccessor",
     "PastureBlockMixin",
     "PokemonPastureBlockEntityMixin"

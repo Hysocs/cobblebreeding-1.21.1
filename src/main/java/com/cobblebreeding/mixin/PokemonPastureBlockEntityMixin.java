@@ -4,6 +4,7 @@ import com.cobblebreeding.CobblemonBreeding;
 import com.cobblebreeding.utils.ReturnToPastureGoal;
 import com.cobblemon.mod.common.api.storage.pc.PCStore;
 import com.cobblemon.mod.common.block.entity.PokemonPastureBlockEntity;
+
 import com.cobblemon.mod.common.entity.pokemon.PokemonEntity;
 import com.cobblemon.mod.common.pokemon.Pokemon;
 import net.minecraft.block.BlockState;
@@ -11,6 +12,7 @@ import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.ai.goal.GoalSelector;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
@@ -28,7 +30,7 @@ import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
 import java.util.List;
 
 
-@Mixin(PokemonPastureBlockEntity.class)
+@Mixin(value = PokemonPastureBlockEntity.class, remap = false)
 public abstract class PokemonPastureBlockEntityMixin extends BlockEntity {
 
     public PokemonPastureBlockEntityMixin(BlockPos blockPos, BlockState blockState) {
@@ -99,35 +101,81 @@ public abstract class PokemonPastureBlockEntityMixin extends BlockEntity {
             at = @At("HEAD"),
             cancellable = true
     )
-    private void cobblebreeding_checkSpeciesBeforeTether(ServerPlayerEntity player, Pokemon pokemon, Direction directionToBehind, CallbackInfoReturnable<Boolean> cir) {
+    private void cobblebreeding_checkCompatibilityBeforeTether(ServerPlayerEntity player, Pokemon newPokemon, Direction directionToBehind, CallbackInfoReturnable<Boolean> cir) {
         PokemonPastureBlockEntity targetEntity = (PokemonPastureBlockEntity) (Object) this;
         List<PokemonPastureBlockEntity.Tethering> currentTetheredPokemon = targetEntity.getTetheredPokemon();
 
-        String newSpecies = pokemon.getSpecies().getName();
-        boolean isNewDitto = "Ditto".equalsIgnoreCase(newSpecies);
-
-        if (currentTetheredPokemon != null && !currentTetheredPokemon.isEmpty()) {
-            PokemonPastureBlockEntity.Tethering firstTether = currentTetheredPokemon.get(0);
-            Pokemon firstPokemon = firstTether.getPokemon();
-
-            if (firstPokemon != null) {
-                String firstSpecies = firstPokemon.getSpecies().getName();
-                boolean isFirstDitto = "Ditto".equalsIgnoreCase(firstSpecies);
-
-                if (!isFirstDitto && !isNewDitto && !firstSpecies.equalsIgnoreCase(newSpecies)) {
-                    cir.setReturnValue(false);
-                    player.sendMessage(Text.of("This pasture only accepts Pokémon of the same species, or Ditto."), false);
-                    CBMixinLogger.info("Tether cancelled: Mismatched species ({} vs {}) and neither is Ditto.", firstSpecies, newSpecies);
-                    return;
-                }
-                CBMixinLogger.info("Tether check passed: First species='{}'(isDitto={}), New species='{}'(isDitto={})",
-                        firstSpecies, isFirstDitto, newSpecies, isNewDitto);
-
-            } else {
-                CBMixinLogger.warn("First tethered Pokemon was null when checking species. Allowing tether.");
-            }
+        // Allow tethering if the pasture is empty
+        if (currentTetheredPokemon == null || currentTetheredPokemon.isEmpty()) {
+            return;
         }
-    }
 
+        PokemonPastureBlockEntity.Tethering firstTether = currentTetheredPokemon.get(0);
+        Pokemon firstPokemon = firstTether.getPokemon();
+
+        if (firstPokemon == null) {
+            CBMixinLogger.warn("First tethered Pokemon was null when checking compatibility. Allowing tether, but this might indicate an issue.");
+            return;
+        }
+
+        // Get properties, specifically checking for Ditto first
+        String newSpeciesName = newPokemon.getSpecies().getName();
+        boolean isNewDitto = "Ditto".equalsIgnoreCase(newSpeciesName);
+
+        String firstSpeciesName = firstPokemon.getSpecies().getName();
+        boolean isFirstDitto = "Ditto".equalsIgnoreCase(firstSpeciesName);
+
+        // --- Breeding Compatibility Rules ---
+
+        // Rule 1: Cannot tether two Dittos
+        if (isFirstDitto && isNewDitto) {
+            player.sendMessage(Text.literal("You cannot place two Dittos together for breeding.").formatted(Formatting.RED), false);
+            CBMixinLogger.info("Tether cancelled: Attempted to add Ditto to existing Ditto.");
+            cir.setReturnValue(false);
+            return;
+        }
+
+        // Rule 2: If one is Ditto (and not both), it's always compatible (with non-Ditto M/F or non-Ditto Genderless)
+        if (isFirstDitto || isNewDitto) {
+            CBMixinLogger.info("Tether compatibility check passed: Ditto involved. First='{}'(Ditto={}), New='{}'(Ditto={})",
+                    firstSpeciesName, isFirstDitto, newSpeciesName, isNewDitto);
+            return; // Allow tethering
+        }
+
+        // --- Rules for Non-Ditto pairs ---
+        // Now we know neither Pokemon is Ditto, check gender and species
+
+        boolean isNewGenderless = newPokemon.getGender() == com.cobblemon.mod.common.pokemon.Gender.GENDERLESS;
+        boolean isFirstGenderless = firstPokemon.getGender() == com.cobblemon.mod.common.pokemon.Gender.GENDERLESS;
+
+        // Rule 3: Cannot tether two non-Ditto Genderless Pokémon
+        if (isFirstGenderless && isNewGenderless) {
+            player.sendMessage(Text.literal("You cannot place two Genderless Pokémon together for breeding.").formatted(Formatting.RED), false);
+            CBMixinLogger.info("Tether cancelled: Attempted to add non-Ditto Genderless ({}) to existing non-Ditto Genderless ({}).", newSpeciesName, firstSpeciesName);
+            cir.setReturnValue(false);
+            return;
+        }
+
+        // Rule 4: Cannot tether non-Ditto Genderless with non-Ditto Gendered Pokémon
+        if (isFirstGenderless || isNewGenderless) { // Uses XOR implicitly because the && case was caught above
+            player.sendMessage(Text.literal("Genderless Pokémon can only breed with Ditto.").formatted(Formatting.RED), false);
+            CBMixinLogger.info("Tether cancelled: Attempted to mix non-Ditto Genderless and non-Ditto Gendered. First='{}'(Genderless={}), New='{}'(Genderless={})",
+                    firstSpeciesName, isFirstGenderless, newSpeciesName, isNewGenderless);
+            cir.setReturnValue(false);
+            return;
+        }
+
+        // Rule 5: Cannot tether different non-Ditto, non-Genderless (i.e., Gendered M/F) species
+        // At this point, we know neither is Ditto and neither is Genderless
+        if (!firstSpeciesName.equalsIgnoreCase(newSpeciesName)) {
+            player.sendMessage(Text.literal("This pasture only accepts Pokémon of the same species, or compatible pairs with Ditto.").formatted(Formatting.RED), false);
+            CBMixinLogger.info("Tether cancelled: Mismatched species ({} vs {}) for non-Ditto, non-Genderless pair.", firstSpeciesName, newSpeciesName);
+            cir.setReturnValue(false);
+            return;
+        }
+
+        // If none of the cancellation rules matched, allow the tethering (must be same species M/F pair)
+        CBMixinLogger.info("Tether compatibility check passed: Same species M/F pair. First='{}', New='{}'", firstSpeciesName, newSpeciesName);
+    }
 
 }

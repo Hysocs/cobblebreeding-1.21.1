@@ -56,7 +56,7 @@ object BreedingManager {
     private const val WALK_TO_MEET_DURATION_TICKS = 100L
     private const val MAX_HEART_DISTANCE_SQ = 4.0 * 4.0
 
-    private const val BASE_BREEDING_DURATION_TICKS = 6000L
+    private const val BASE_BREEDING_DURATION_TICKS = 100L
     private const val RADIUS = 4
     private const val WALK_RADIUS = 5
     private const val TIER_3_REDUCTION = 0.50
@@ -208,6 +208,10 @@ object BreedingManager {
         return pokemon?.species?.showdownId() == "ditto"
     }
 
+    private fun isGenderless(pokemon: Pokemon?): Boolean {
+        return pokemon?.gender == Gender.GENDERLESS
+    }
+
     fun tickBreedingProcess(world: ServerWorld, pasturePos: BlockPos, state: BreedingState) {
         if (world.time % TICK_THROTTLE != 0L) return
 
@@ -220,50 +224,58 @@ object BreedingManager {
             if (tetheredPokemonPairs.size < 2) return
 
             var foundPair = false
-            var potentialMaleTether: PokemonPastureBlockEntity.Tethering? = null
-            var potentialFemaleTether: PokemonPastureBlockEntity.Tethering? = null
+            var potentialParent1Tether: PokemonPastureBlockEntity.Tethering? = null
+            var potentialParent2Tether: PokemonPastureBlockEntity.Tethering? = null
             var isDittoPairResult = false
 
             val dittos = tetheredPokemonPairs.filter { isDitto(it.second) }
-            val nonDittos = tetheredPokemonPairs.filterNot { isDitto(it.second) }
+            val genderlessNonDittos = tetheredPokemonPairs.filter { isGenderless(it.second) && !isDitto(it.second) }
+            val genderedNonDittos = tetheredPokemonPairs.filterNot { isDitto(it.second) || isGenderless(it.second) }
 
-            if (dittos.size == 1 && nonDittos.isNotEmpty()) {
+            if (dittos.size == 1) {
                 val dittoPair = dittos.first()
-                val partnerPair = nonDittos.first()
-                potentialMaleTether = dittoPair.first
-                potentialFemaleTether = partnerPair.first
-                isDittoPairResult = true
-                foundPair = true
-                LOGGER.debug("Potential Ditto pair found at {}: Ditto ({}) + {} ({})",
-                    pastureBlockEntity.pos, dittoPair.second.species.name, partnerPair.second.species.name, partnerPair.second.gender)
+                if (genderlessNonDittos.isNotEmpty()) {
+                    val partnerPair = genderlessNonDittos.first()
+                    potentialParent1Tether = dittoPair.first
+                    potentialParent2Tether = partnerPair.first
+                    isDittoPairResult = true
+                    foundPair = true
+                } else if (genderedNonDittos.isNotEmpty()) {
+                    val partnerPair = genderedNonDittos.first()
+                    if (partnerPair.second.gender != Gender.GENDERLESS) {
+                        potentialParent1Tether = dittoPair.first
+                        potentialParent2Tether = partnerPair.first
+                        isDittoPairResult = true
+                        foundPair = true
+                    }
+                }
             }
 
-
             if (!foundPair) {
-                val speciesMap = nonDittos.groupBy { it.second.species }
+                val speciesMap = genderedNonDittos.groupBy { it.second.species }
                 for ((species, tethersInSpecies) in speciesMap) {
                     if (species == null || tethersInSpecies.size < 2) continue
+
                     val males = tethersInSpecies.filter { it.second.gender == Gender.MALE }
                     val females = tethersInSpecies.filter { it.second.gender == Gender.FEMALE }
 
                     if (males.isNotEmpty() && females.isNotEmpty()) {
-                        potentialMaleTether = males.first().first
-                        potentialFemaleTether = females.first().first
+                        potentialParent1Tether = males.first().first
+                        potentialParent2Tether = females.first().first
                         isDittoPairResult = false
                         foundPair = true
-                        LOGGER.debug("Potential standard pair found at {}: {} ({})", pastureBlockEntity.pos, species.name, potentialMaleTether.getPokemon()?.species?.name)
                         break
                     }
                 }
             }
 
-            if (foundPair && potentialMaleTether != null && potentialFemaleTether != null) {
-                val maleEntityCheck = getPokemonEntityByPokemonUUID(world, pastureBlockEntity, potentialMaleTether.pokemonId)
-                val femaleEntityCheck = getPokemonEntityByPokemonUUID(world, pastureBlockEntity, potentialFemaleTether.pokemonId)
+            if (foundPair && potentialParent1Tether != null && potentialParent2Tether != null) {
+                val entity1Check = getPokemonEntityByPokemonUUID(world, pastureBlockEntity, potentialParent1Tether.pokemonId)
+                val entity2Check = getPokemonEntityByPokemonUUID(world, pastureBlockEntity, potentialParent2Tether.pokemonId)
 
-                if (maleEntityCheck != null && femaleEntityCheck != null) {
-                    state.malePokemonUUID = potentialMaleTether.pokemonId
-                    state.femalePokemonUUID = potentialFemaleTether.pokemonId
+                if (entity1Check != null && entity2Check != null) {
+                    state.malePokemonUUID = potentialParent1Tether.pokemonId
+                    state.femalePokemonUUID = potentialParent2Tether.pokemonId
                     state.isDittoPair = isDittoPairResult
                     state.breedingStartTick = world.time
                     state.needsDurationCalc = true
@@ -275,10 +287,8 @@ object BreedingManager {
                     state.heartsPlayed = false
                     state.breedingDurationTicks = BASE_BREEDING_DURATION_TICKS
                     state.breedingTier = 1
-                    LOGGER.info("Starting breeding at {}. Is Ditto Pair: {}. Male: {}, Female: {}",
-                        pastureBlockEntity.pos, state.isDittoPair, potentialMaleTether.getPokemon()?.species?.name, potentialFemaleTether.getPokemon()?.species?.name)
                 } else {
-                    LOGGER.debug("Found potential pair data at {}, but entities currently missing. Skipping start.", pastureBlockEntity.pos)
+                    // Entities missing, do nothing this tick
                 }
             }
             return
@@ -288,13 +298,11 @@ object BreedingManager {
         val femaleEntity = getPokemonEntityByPokemonUUID(world, pastureBlockEntity, state.femalePokemonUUID!!)
 
         if (maleEntity == null || femaleEntity == null) {
-            LOGGER.warn("Breeding cancelled at {}: Parent entity missing during tick.", pastureBlockEntity.pos)
             cancelBreeding(state, maleEntity, femaleEntity)
             return
         }
 
         if (state.needsDurationCalc) {
-            LOGGER.info("Performing deferred duration calculation for pasture at {}", pastureBlockEntity.pos)
             val calculationParentPokemon = if (state.isDittoPair) {
                 val maleIsDitto = isDitto(maleEntity.pokemon)
                 if (maleIsDitto) femaleEntity.pokemon else maleEntity.pokemon
@@ -307,9 +315,7 @@ object BreedingManager {
                 state.breedingDurationTicks = duration
                 state.breedingTier = tier
                 state.needsDurationCalc = false
-                LOGGER.info("Deferred calculation complete for {} (based on {}). Duration: {}, Tier: {}", pastureBlockEntity.pos, calculationParentPokemon.species.name, duration, tier)
             } else {
-                LOGGER.error("Could not determine a valid parent for breeding duration calculation at {}. Cancelling.", pastureBlockEntity.pos)
                 cancelBreeding(state, maleEntity, femaleEntity)
                 return
             }
@@ -338,7 +344,6 @@ object BreedingManager {
                 addWalkGoalIfNotPresent(femaleEntity, mp)
             }
             state.walkingStarted = true
-            LOGGER.info("Breeding at {}: Pokemon starting walk.", pastureBlockEntity.pos)
         } else if (state.walkingStarted && state.meetingPoint != null && state.meetingEndTime == null) {
             if (!areEntitiesWalking(maleEntity, femaleEntity) || elapsedTicks >= state.breedingDurationTicks + WALK_TO_MEET_DURATION_TICKS) {
                 removeWalkGoal(maleEntity)
@@ -347,9 +352,7 @@ object BreedingManager {
                 state.jumpCount = 0
                 state.lastJumpTick = currentTick
                 state.heartsPlayed = false
-                LOGGER.info("Breeding at {}: Pokemon reached meeting point or walk timed out.", pastureBlockEntity.pos)
             } else if (elapsedTicks > state.breedingDurationTicks + WALK_TIMEOUT_EXTRA_TICKS) {
-                LOGGER.warn("Breeding cancelled at {}: Walk took too long (absolute timeout).", pastureBlockEntity.pos)
                 cancelBreeding(state, maleEntity, femaleEntity)
             }
         } else if (state.meetingEndTime != null) {
@@ -368,35 +371,28 @@ object BreedingManager {
                     world.spawnParticles(ParticleTypes.HEART, maleEntity.x, maleEntity.eyeY, maleEntity.z, 7, 0.5, 0.5, 0.5, 0.02)
                     world.spawnParticles(ParticleTypes.HEART, femaleEntity.x, femaleEntity.eyeY, femaleEntity.z, 7, 0.5, 0.5, 0.5, 0.02)
                     state.heartsPlayed = true
-                    LOGGER.info("Breeding at {}: Showing hearts.", pastureBlockEntity.pos)
                 } else {
-                    LOGGER.info("Breeding at {} cancelled: Pokemon moved too far apart before hearts.", pastureBlockEntity.pos)
                     cancelBreeding(state, maleEntity, femaleEntity)
                 }
             } else {
-                LOGGER.info("Breeding at {}: Attempting egg generation.", pastureBlockEntity.pos)
                 val parentTetherForOwner = pastureBlockEntity.tetheredPokemon.find { it.pokemonId == state.femalePokemonUUID }
+                    ?: pastureBlockEntity.tetheredPokemon.find { it.pokemonId == state.malePokemonUUID } // Fallback check
+
                 if (parentTetherForOwner != null) {
                     val ownerUUID = parentTetherForOwner.playerId
                     val ownerPlayer = world.server?.playerManager?.getPlayer(ownerUUID)
                     if (ownerPlayer != null) {
-                        val eggGenerated = generateAndAddEggToPasture(world, pastureBlockEntity.pos, state, ownerPlayer)
-                        if (eggGenerated) {
-                            LOGGER.info("Egg successfully generated for {}. Resetting breeding state.", pastureBlockEntity.pos)
-                        } else {
-                            LOGGER.warn("Egg generation failed for {} (e.g., PC full). Cancelling cycle.", pastureBlockEntity.pos)
-                        }
+                        generateAndAddEggToPasture(world, pastureBlockEntity.pos, state, ownerPlayer)
                     } else {
-                        LOGGER.info("Owner offline for pasture {}. Cancelling breeding.", pastureBlockEntity.pos)
+                        // Owner offline, do nothing this cycle
                     }
                 } else {
-                    LOGGER.warn("Female tether missing during egg gen attempt at {}. Cancelling.", pastureBlockEntity.pos)
+                    // Parent tether missing, log implicitly handled in generateAndAddEggToPasture or parent check
                 }
                 cancelBreeding(state, maleEntity, femaleEntity)
             }
         }
     }
-
     private fun isEntityWalking(entity: PokemonEntity?): Boolean {
         val mobEntity = entity as? MobEntity ?: return false
         val goalSelector = (mobEntity as? MobEntityAccessor)?.goalSelector ?: return false
@@ -863,4 +859,6 @@ class WalkToPositionGoal(
             }
         }
     }
+
+
 }
