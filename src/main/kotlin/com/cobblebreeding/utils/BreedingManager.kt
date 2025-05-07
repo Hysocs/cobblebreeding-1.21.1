@@ -2,12 +2,11 @@ package com.cobblebreeding.utils
 
 import com.cobblebreeding.BreedingState
 import com.cobblebreeding.CobblemonBreeding
+import com.cobblebreeding.WorldBlockPos
 import com.cobblebreeding.mixin.MobEntityAccessor
-import com.cobblebreeding.utils.BreedingManager.LOGGER
 import com.cobblemon.mod.common.Cobblemon
 import com.cobblemon.mod.common.api.pokemon.Natures
 import com.cobblemon.mod.common.api.pokemon.PokemonProperties
-import com.cobblemon.mod.common.api.pokemon.PokemonSpecies
 import com.cobblemon.mod.common.api.pokemon.stats.Stat
 import com.cobblemon.mod.common.api.pokemon.stats.Stats
 import com.cobblemon.mod.common.block.entity.PokemonPastureBlockEntity
@@ -17,6 +16,7 @@ import com.cobblemon.mod.common.pokemon.Gender
 import com.cobblemon.mod.common.pokemon.Nature
 import com.cobblemon.mod.common.pokemon.Pokemon
 import com.cobblemon.mod.common.pokemon.Species
+import com.google.common.util.concurrent.ThreadFactoryBuilder
 import net.minecraft.block.Block
 import net.minecraft.block.Blocks
 import net.minecraft.entity.ai.goal.Goal
@@ -36,16 +36,13 @@ import net.minecraft.util.math.BlockPos
 import net.minecraft.util.math.Box
 import net.minecraft.util.math.Vec3d
 import org.joml.Vector3f
-import org.slf4j.Logger
-import org.slf4j.LoggerFactory
 import java.util.*
-import java.util.EnumSet
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import kotlin.math.roundToLong
-import kotlin.random.Random
 
 object BreedingManager {
 
-    val LOGGER: Logger = LoggerFactory.getLogger(CobblemonBreeding.MOD_ID + "-BreedingManager")
 
     private const val STAND_DURATION_TICKS = 60L
     private const val JUMP_DELAY_TICKS = 15L
@@ -56,11 +53,15 @@ object BreedingManager {
     private const val WALK_TO_MEET_DURATION_TICKS = 100L
     private const val MAX_HEART_DISTANCE_SQ = 4.0 * 4.0
 
-    private const val BASE_BREEDING_DURATION_TICKS = 100L
+    const val BASE_BREEDING_DURATION_TICKS = 48000L
     private const val RADIUS = 4
-    private const val WALK_RADIUS = 5
     private const val TIER_3_REDUCTION = 0.50
     private const val TIER_2_REDUCTION = 0.25
+
+    internal val breedingCalculationExecutor: ExecutorService = Executors.newFixedThreadPool(
+        Runtime.getRuntime().availableProcessors().coerceAtMost(4).coerceAtLeast(1),
+        ThreadFactoryBuilder().setNameFormat(CobblemonBreeding.MOD_ID + "-calculator-%d").setDaemon(true).build()
+    )
 
     private val typeToBlocks: Map<String, List<Block>> = mapOf(
         "normal" to listOf(Blocks.DIRT, Blocks.GRASS_BLOCK, Blocks.PODZOL, Blocks.COARSE_DIRT, Blocks.HAY_BLOCK, Blocks.OAK_LOG, Blocks.STRIPPED_OAK_LOG),
@@ -92,7 +93,7 @@ object BreedingManager {
         "fighting" to listOf(Blocks.BRICK_WALL, Blocks.TARGET, Blocks.STONE_BUTTON, Blocks.STONE_PRESSURE_PLATE, Blocks.GRINDSTONE, Blocks.BELL, Blocks.LOOM, Blocks.RED_CARPET),
         "poison" to listOf(Blocks.SLIME_BLOCK, Blocks.COBWEB, Blocks.WARPED_FUNGUS, Blocks.NETHER_SPROUTS, Blocks.LILAC, Blocks.PURPLE_CANDLE, Blocks.MAGENTA_CANDLE, Blocks.SCULK_VEIN, Blocks.WITHER_ROSE),
         "ground" to listOf(Blocks.CACTUS, Blocks.DEAD_BUSH, Blocks.POINTED_DRIPSTONE, Blocks.BROWN_MUSHROOM, Blocks.DEAD_TUBE_CORAL, Blocks.DEAD_BRAIN_CORAL, Blocks.DEAD_BUBBLE_CORAL, Blocks.DEAD_FIRE_CORAL, Blocks.DEAD_HORN_CORAL, Blocks.BROWN_CARPET, Blocks.TERRACOTTA),
-        "flying" to listOf(Blocks.WHITE_WOOL, Blocks.LIGHT_GRAY_WOOL, Blocks.LIGHT_BLUE_CARPET, Blocks.WHITE_CARPET, Blocks.END_ROD, Blocks.AMETHYST_CLUSTER, Blocks.SCAFFOLDING,),
+        "flying" to listOf(Blocks.SNOW_BLOCK, Blocks.PACKED_ICE, Blocks.WHITE_WOOL, Blocks.LIGHT_GRAY_WOOL, Blocks.LIGHT_BLUE_CARPET, Blocks.WHITE_CARPET, Blocks.END_ROD, Blocks.AMETHYST_BLOCK, Blocks.SMOOTH_BASALT, Blocks.END_STONE, Blocks.WHITE_CONCRETE_POWDER),
         "psychic" to listOf(Blocks.AMETHYST_CLUSTER, Blocks.LARGE_AMETHYST_BUD, Blocks.MEDIUM_AMETHYST_BUD, Blocks.SMALL_AMETHYST_BUD, Blocks.END_ROD, Blocks.CRYING_OBSIDIAN, Blocks.PURPLE_CANDLE, Blocks.MAGENTA_CANDLE, Blocks.ENCHANTING_TABLE, Blocks.SCULK_SENSOR),
         "bug" to listOf(Blocks.COBWEB, Blocks.VINE, Blocks.SPORE_BLOSSOM, Blocks.BROWN_MUSHROOM, Blocks.RED_MUSHROOM, Blocks.TWISTING_VINES, Blocks.WEEPING_VINES, Blocks.SHROOMLIGHT, Blocks.HONEY_BLOCK, Blocks.CANDLE),
         "rock" to listOf(Blocks.STONE_BUTTON, Blocks.POLISHED_BLACKSTONE_BUTTON, Blocks.STONE_PRESSURE_PLATE, Blocks.POLISHED_BLACKSTONE_PRESSURE_PLATE, Blocks.COBBLESTONE_WALL, Blocks.DEEPSLATE_TILE_WALL, Blocks.POINTED_DRIPSTONE, Blocks.LARGE_AMETHYST_BUD, Blocks.LANTERN, Blocks.CAMPFIRE),
@@ -103,7 +104,7 @@ object BreedingManager {
         "fairy" to listOf(Blocks.PINK_TULIP, Blocks.ALLIUM, Blocks.AZALEA, Blocks.FLOWERING_AZALEA, Blocks.PINK_PETALS, Blocks.SPORE_BLOSSOM, Blocks.AMETHYST_CLUSTER, Blocks.LARGE_AMETHYST_BUD, Blocks.PINK_CANDLE, Blocks.MAGENTA_CANDLE, Blocks.PURPLE_CANDLE, Blocks.WHITE_CANDLE, Blocks.END_ROD, Blocks.TWISTING_VINES)
     )
 
-    val EGG_SPECIES_ID = Identifier.of("cobblemon", "egg")
+    private val EGG_SPECIES_ID: Identifier = Identifier.of("cobblemon", "egg")
     const val EGG_NBT_KEY = "is_egg"
     const val TARGET_SPECIES_NBT_KEY = "target_species"
     const val TOTAL_HATCH_STEPS_KEY = "totalHatchSteps"
@@ -135,13 +136,7 @@ object BreedingManager {
     private val TIER_3_COLOR = Vector3f(0.0f, 1.0f, 0.0f)
     private const val PARTICLE_SCALE = 0.7f
 
-    private fun calculateBreedingDuration(world: ServerWorld, pasturePos: BlockPos, referencePokemon: Pokemon): Pair<Long, Int> {
-        val typeNames = listOfNotNull(
-            referencePokemon.species.primaryType.name.lowercase(Locale.ROOT),
-            referencePokemon.species.secondaryType?.name?.lowercase(Locale.ROOT)
-        )
-        LOGGER.info("Calculating duration based on ${referencePokemon.species.name} (Types: $typeNames) at $pasturePos")
-
+    private fun calculateBreedingDurationInternal(world: ServerWorld, pasturePos: BlockPos, typeNames: List<String> ): Pair<Long, Int> {
         val favorableBaseBlocks = typeNames.flatMap { typeToBlocks[it] ?: emptyList() }.toSet()
         val favorableDecorBlocks = typeNames.flatMap { typeToDecorations[it] ?: emptyList() }.toSet()
 
@@ -154,20 +149,20 @@ object BreedingManager {
 
         var baseFavorableCount = 0
         var decorFavorableCount = 0
+        val mutablePos = BlockPos.Mutable()
 
         for (x in minX..maxX) {
             for (z in minZ..maxZ) {
-                val baseBlockPos = BlockPos(x, baseY, z)
-                val baseBlock = world.getBlockState(baseBlockPos).block
+                mutablePos.set(x, baseY, z)
+                val baseBlock = world.getBlockState(mutablePos).block
                 if (baseBlock in favorableBaseBlocks) {
                     baseFavorableCount++
                 }
 
-                val decorBlockPos = BlockPos(x, decorY, z)
-                val decorBlock = world.getBlockState(decorBlockPos).block
-
-                if (decorBlockPos == pasturePos) {
-                    decorFavorableCount++
+                mutablePos.y = decorY
+                val decorBlock = world.getBlockState(mutablePos).block
+                if (mutablePos.x == pasturePos.x && mutablePos.z == pasturePos.z) {
+                    if (decorBlock in favorableDecorBlocks) decorFavorableCount++
                 } else {
                     if (decorBlock in favorableDecorBlocks) {
                         decorFavorableCount++
@@ -188,19 +183,14 @@ object BreedingManager {
             totalFavorableCount >= tier2Threshold -> 2
             else -> 1
         }
-
-        LOGGER.info("Counts: Base=$baseFavorableCount, Decor=$decorFavorableCount, Total=$totalFavorableCount / $totalBlocksChecked")
-        LOGGER.info("Thresholds: Tier3=$tier3Threshold (75%), Tier2=$tier2Threshold (50%)")
-        LOGGER.info("Calculated Tier: $tier")
+        println("Breeding Tier: $tier ($totalFavorableCount / $totalBlocksChecked favorable blocks)")
 
         val multiplier = when (tier) {
             3 -> 1.0 - TIER_3_REDUCTION
             2 -> 1.0 - TIER_2_REDUCTION
             else -> 1.0
         }
-
         val duration = (BASE_BREEDING_DURATION_TICKS * multiplier).roundToLong().coerceAtLeast(1L)
-
         return Pair(duration, tier)
     }
 
@@ -253,8 +243,8 @@ object BreedingManager {
 
             if (!foundPair) {
                 val speciesMap = genderedNonDittos.groupBy { it.second.species }
-                for ((species, tethersInSpecies) in speciesMap) {
-                    if (species == null || tethersInSpecies.size < 2) continue
+                for ((_, tethersInSpecies) in speciesMap) {
+                    if (tethersInSpecies.size < 2) continue
 
                     val males = tethersInSpecies.filter { it.second.gender == Gender.MALE }
                     val females = tethersInSpecies.filter { it.second.gender == Gender.FEMALE }
@@ -279,6 +269,7 @@ object BreedingManager {
                     state.isDittoPair = isDittoPairResult
                     state.breedingStartTick = world.time
                     state.needsDurationCalc = true
+                    state.isCalculatingDuration = false
                     state.walkingStarted = false
                     state.meetingPoint = null
                     state.meetingEndTime = null
@@ -287,8 +278,6 @@ object BreedingManager {
                     state.heartsPlayed = false
                     state.breedingDurationTicks = BASE_BREEDING_DURATION_TICKS
                     state.breedingTier = 1
-                } else {
-                    // Entities missing, do nothing this tick
                 }
             }
             return
@@ -302,27 +291,75 @@ object BreedingManager {
             return
         }
 
-        if (state.needsDurationCalc) {
+        if (state.needsDurationCalc && !state.isCalculatingDuration) {
             val calculationParentPokemon = if (state.isDittoPair) {
-                val maleIsDitto = isDitto(maleEntity.pokemon)
-                if (maleIsDitto) femaleEntity.pokemon else maleEntity.pokemon
+                if (isDitto(maleEntity.pokemon)) femaleEntity.pokemon else maleEntity.pokemon
             } else {
                 femaleEntity.pokemon
             }
 
-            if (calculationParentPokemon != null) {
-                val (duration, tier) = calculateBreedingDuration(world, pastureBlockEntity.pos, calculationParentPokemon)
-                state.breedingDurationTicks = duration
-                state.breedingTier = tier
-                state.needsDurationCalc = false
-            } else {
-                cancelBreeding(state, maleEntity, femaleEntity)
-                return
+            state.isCalculatingDuration = true
+            val worldForAsync: ServerWorld = world
+            val pasturePosForAsync: BlockPos = pasturePos
+            val typesForAsync: List<String> = listOfNotNull(
+                calculationParentPokemon.species.primaryType.name.lowercase(Locale.ROOT),
+                calculationParentPokemon.species.secondaryType?.name?.lowercase(Locale.ROOT)
+            )
+            val maleUUIDForCallback = state.malePokemonUUID
+            val femaleUUIDForCallback = state.femalePokemonUUID
+            val startTickForCallback = state.breedingStartTick
+            val worldKeyForCallback = state.worldKey
+
+            breedingCalculationExecutor.submit {
+                try {
+                    val (duration, tier) = calculateBreedingDurationInternal(worldForAsync, pasturePosForAsync, typesForAsync )
+                    worldForAsync.server.execute {
+                        val currentWorldPosKey = worldKeyForCallback?.let { WorldBlockPos(it, pasturePosForAsync) }
+                        val currentState = currentWorldPosKey?.let { CobblemonBreeding.getBreedingState(it) }
+
+                        if (currentState != null && currentState.isCalculatingDuration &&
+                            currentState.malePokemonUUID == maleUUIDForCallback &&
+                            currentState.femalePokemonUUID == femaleUUIDForCallback &&
+                            currentState.breedingStartTick == startTickForCallback) {
+                            currentState.breedingDurationTicks = duration
+                            currentState.breedingTier = tier
+                            currentState.needsDurationCalc = false
+                            currentState.isCalculatingDuration = false
+                        } else {
+                            if (currentState != null && currentState.malePokemonUUID == maleUUIDForCallback && currentState.femalePokemonUUID == femaleUUIDForCallback) {
+                                currentState.isCalculatingDuration = false
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+
+                    worldForAsync.server.execute {
+                        val currentWorldPosKey = worldKeyForCallback?.let { WorldBlockPos(it, pasturePosForAsync) }
+                        val currentState = currentWorldPosKey?.let { CobblemonBreeding.getBreedingState(it) }
+                        if (currentState != null && currentState.malePokemonUUID == maleUUIDForCallback && currentState.femalePokemonUUID == femaleUUIDForCallback) {
+                            currentState.isCalculatingDuration = false
+                        }
+                    }
+                }
             }
+            return
+        }
+
+        if (state.isCalculatingDuration) {
+            if (world.time % 40 == 0L) {
+                val particleColor = Vector3f(0.5f, 0.5f, 1.0f)
+                val dustOptions = DustParticleEffect(particleColor, PARTICLE_SCALE)
+                val particleX = pastureBlockEntity.pos.x + 0.5
+                val particleY = pastureBlockEntity.pos.y + 0.8
+                val particleZ = pastureBlockEntity.pos.z + 0.5
+                world.spawnParticles(dustOptions, particleX, particleY, particleZ, 5, 0.3, 0.3, 0.3, 0.01)
+            }
+            return
         }
 
         val currentTick = world.time
-        val elapsedTicks = currentTick - state.breedingStartTick!!
+        val elapsedTicks = currentTick - (state.breedingStartTick ?: currentTick)
+
 
         if (!state.walkingStarted && state.meetingEndTime == null && elapsedTicks < state.breedingDurationTicks) {
             if (currentTick % 40 == 0L) {
@@ -337,7 +374,7 @@ object BreedingManager {
                 val particleZ = pastureBlockEntity.pos.z + 0.5
                 world.spawnParticles(dustOptions, particleX, particleY, particleZ, 12, 0.5, 0.5, 0.5, 0.03)
             }
-        } else if (!state.walkingStarted && state.meetingEndTime == null && elapsedTicks >= state.breedingDurationTicks) {
+        } else if (!state.walkingStarted && state.meetingEndTime == null) {
             state.meetingPoint = calculateMeetingPoint(maleEntity, femaleEntity)
             state.meetingPoint?.let { mp ->
                 addWalkGoalIfNotPresent(maleEntity, mp)
@@ -357,42 +394,76 @@ object BreedingManager {
             }
         } else if (state.meetingEndTime != null) {
             val ticksSinceMeeting = currentTick - state.meetingEndTime!!
-            if (ticksSinceMeeting < STAND_DURATION_TICKS) {
-                // Standing still phase
-            } else if (state.jumpCount < JUMP_COUNT_TARGET) {
-                if (currentTick >= state.lastJumpTick + JUMP_DELAY_TICKS) {
-                    maleEntity.jump()
-                    world.playSound(null, maleEntity.blockPos, SoundEvents.ENTITY_RABBIT_JUMP, SoundCategory.NEUTRAL, 0.5f, world.random.nextFloat() * 0.2f + 0.9f)
-                    state.jumpCount++
-                    state.lastJumpTick = currentTick
-                }
-            } else if (!state.heartsPlayed) {
-                if (maleEntity.squaredDistanceTo(femaleEntity) <= MAX_HEART_DISTANCE_SQ) {
-                    world.spawnParticles(ParticleTypes.HEART, maleEntity.x, maleEntity.eyeY, maleEntity.z, 7, 0.5, 0.5, 0.5, 0.02)
-                    world.spawnParticles(ParticleTypes.HEART, femaleEntity.x, femaleEntity.eyeY, femaleEntity.z, 7, 0.5, 0.5, 0.5, 0.02)
-                    state.heartsPlayed = true
-                } else {
-                    cancelBreeding(state, maleEntity, femaleEntity)
-                }
-            } else {
-                val parentTetherForOwner = pastureBlockEntity.tetheredPokemon.find { it.pokemonId == state.femalePokemonUUID }
-                    ?: pastureBlockEntity.tetheredPokemon.find { it.pokemonId == state.malePokemonUUID } // Fallback check
 
-                if (parentTetherForOwner != null) {
-                    val ownerUUID = parentTetherForOwner.playerId
-                    val ownerPlayer = world.server?.playerManager?.getPlayer(ownerUUID)
-                    if (ownerPlayer != null) {
-                        generateAndAddEggToPasture(world, pastureBlockEntity.pos, state, ownerPlayer)
+            if (ticksSinceMeeting >= STAND_DURATION_TICKS) {
+                if (state.jumpCount < JUMP_COUNT_TARGET) {
+
+                    if (currentTick >= state.lastJumpTick + JUMP_DELAY_TICKS) {
+                        maleEntity.jump()
+                        world.playSound(
+                            null,
+                            maleEntity.blockPos,
+                            SoundEvents.ENTITY_RABBIT_JUMP,
+                            SoundCategory.NEUTRAL,
+                            0.5f,
+                            world.random.nextFloat() * 0.2f + 0.9f
+                        )
+                        state.jumpCount++
+                        state.lastJumpTick = currentTick
+                    }
+                } else if (!state.heartsPlayed) {
+
+                    if (maleEntity.squaredDistanceTo(femaleEntity) <= MAX_HEART_DISTANCE_SQ) {
+                        world.spawnParticles(
+                            ParticleTypes.HEART,
+                            maleEntity.x,
+                            maleEntity.eyeY,
+                            maleEntity.z,
+                            7,
+                            0.5,
+                            0.5,
+                            0.5,
+                            0.02
+                        )
+                        world.spawnParticles(
+                            ParticleTypes.HEART,
+                            femaleEntity.x,
+                            femaleEntity.eyeY,
+                            femaleEntity.z,
+                            7,
+                            0.5,
+                            0.5,
+                            0.5,
+                            0.02
+                        )
+                        state.heartsPlayed = true
                     } else {
-                        // Owner offline, do nothing this cycle
+                        cancelBreeding(
+                            state,
+                            maleEntity,
+                            femaleEntity
+                        )
                     }
                 } else {
-                    // Parent tether missing, log implicitly handled in generateAndAddEggToPasture or parent check
+
+                    val parentTetherForOwner =
+                        pastureBlockEntity.tetheredPokemon.find { it.pokemonId == state.femalePokemonUUID }
+                            ?: pastureBlockEntity.tetheredPokemon.find { it.pokemonId == state.malePokemonUUID }
+
+                    if (parentTetherForOwner != null) {
+                        val ownerUUID = parentTetherForOwner.playerId
+                        val ownerPlayer =
+                            world.server.playerManager.getPlayer(ownerUUID)
+                        if (ownerPlayer != null) {
+                            generateAndAddEggToPasture(world, pastureBlockEntity.pos, state, ownerPlayer)
+                        }
+                    }
+                    cancelBreeding(state, maleEntity, femaleEntity)
                 }
-                cancelBreeding(state, maleEntity, femaleEntity)
             }
         }
     }
+
     private fun isEntityWalking(entity: PokemonEntity?): Boolean {
         val mobEntity = entity as? MobEntity ?: return false
         val goalSelector = (mobEntity as? MobEntityAccessor)?.goalSelector ?: return false
@@ -406,17 +477,18 @@ object BreedingManager {
     }
 
     private fun getPokemonEntityByPokemonUUID(world: ServerWorld, pastureBlockEntity: PokemonPastureBlockEntity, pokemonUuid: UUID): PokemonEntity? {
-        val minPos = pastureBlockEntity.minRoamPos ?: pastureBlockEntity.pos.add(-WALK_RADIUS, -WALK_RADIUS, -WALK_RADIUS)
-        val maxPos = pastureBlockEntity.maxRoamPos ?: pastureBlockEntity.pos.add(WALK_RADIUS, WALK_RADIUS, WALK_RADIUS)
+
+        val minPos = pastureBlockEntity.minRoamPos
+        val maxPos = pastureBlockEntity.maxRoamPos
         val searchBox = Box(Vec3d.of(minPos).add(-1.0, -1.0, -1.0), Vec3d.of(maxPos.add(1, 1, 1)).add(1.0, 2.0, 1.0))
         val potentialEntities = world.getEntitiesByClass(PokemonEntity::class.java, searchBox) { entity ->
-            entity.pokemon?.uuid == pokemonUuid && !entity.isRemoved
+            entity.pokemon.uuid == pokemonUuid && !entity.isRemoved
         }
         return potentialEntities.firstOrNull()
     }
 
     private fun getItemId(itemStack: ItemStack?): String? {
-        return if (itemStack == null || itemStack.isEmpty) null else Registries.ITEM.getId(itemStack.item)?.toString()
+        return if (itemStack == null || itemStack.isEmpty) null else Registries.ITEM.getId(itemStack.item).toString()
     }
 
     private fun calculateOffspringIvs(malePokemon: Pokemon, femalePokemon: Pokemon): Map<Stat, Int> {
@@ -447,7 +519,7 @@ object BreedingManager {
             availableStats.shuffle()
             val statsToInheritRandomly = availableStats.take(ivsToInheritRandomly)
             statsToInheritRandomly.forEach { stat ->
-                val parentToInheritFrom = if (Random.nextBoolean()) malePokemon else femalePokemon
+                val parentToInheritFrom = if (kotlin.random.Random.nextBoolean()) malePokemon else femalePokemon
                 finalIvs[stat] = parentToInheritFrom.ivs[stat] ?: 0
             }
             availableStats.removeAll(statsToInheritRandomly.toSet())
@@ -455,14 +527,13 @@ object BreedingManager {
 
         availableStats.forEach { stat ->
             if (!finalIvs.containsKey(stat)) {
-                finalIvs[stat] = Random.nextInt(32)
+                finalIvs[stat] = kotlin.random.Random.nextInt(32)
             }
         }
 
         allStats.forEach { stat ->
-            finalIvs.putIfAbsent(stat, Random.nextInt(32))
+            finalIvs.putIfAbsent(stat, kotlin.random.Random.nextInt(32))
         }
-
         return finalIvs
     }
 
@@ -474,14 +545,14 @@ object BreedingManager {
         val femaleHasEverstone = femaleHeldItemId == EVERSTONE_ID
 
         return when {
-            maleHasEverstone && femaleHasEverstone -> if (Random.nextBoolean()) malePokemon.nature else femalePokemon.nature
+            maleHasEverstone && femaleHasEverstone -> if (kotlin.random.Random.nextBoolean()) malePokemon.nature else femalePokemon.nature
             maleHasEverstone -> malePokemon.nature
             femaleHasEverstone -> femalePokemon.nature
             else -> Natures.getRandomNature()
         }
     }
 
-    fun generateAndAddEggToPasture(world: ServerWorld, pasturePos: BlockPos, state: BreedingState, player: ServerPlayerEntity): Boolean {
+    private fun generateAndAddEggToPasture(world: ServerWorld, pasturePos: BlockPos, state: BreedingState, player: ServerPlayerEntity): Boolean {
         val pastureBlockEntity = world.getBlockEntity(pasturePos) as? PokemonPastureBlockEntity ?: return false
 
         val maxTotalPokemon = pastureBlockEntity.getMaxTethered()
@@ -494,7 +565,6 @@ object BreedingManager {
         val femalePokemon = pastureBlockEntity.tetheredPokemon.find { it.pokemonId == state.femalePokemonUUID }?.getPokemon()
 
         if (femalePokemon == null || malePokemon == null) {
-            LOGGER.error("Parent Pokemon data missing during egg creation attempt at {}. State: M={}, F={}, DittoPair={}", pasturePos, state.malePokemonUUID, state.femalePokemonUUID, state.isDittoPair)
             return false
         }
 
@@ -505,21 +575,14 @@ object BreedingManager {
             val maleIsDitto = isDitto(malePokemon)
             targetSpecies = if (maleIsDitto) femalePokemon.species else malePokemon.species
             scaleReferencePokemon = if (maleIsDitto) femalePokemon else malePokemon
-            LOGGER.debug("Ditto pair egg generation: Non-Ditto parent is {}", targetSpecies?.name)
         } else {
             targetSpecies = femalePokemon.species
             scaleReferencePokemon = femalePokemon
-            LOGGER.debug("Standard pair egg generation: Female parent is {}", targetSpecies?.name)
         }
 
-        if (targetSpecies == null) {
-            LOGGER.error("Could not determine target species for egg at {}.", pasturePos)
-            return false
-        }
-        if (targetSpecies.showdownId() == "ditto") {
-            LOGGER.error("Attempted to generate a Ditto egg at {}. This should not happen. Cancelling.", pasturePos)
-            return false
-        }
+
+
+        if (targetSpecies.showdownId() == "ditto") return false
 
         val targetSpeciesIdString = targetSpecies.showdownId()
 
@@ -536,20 +599,15 @@ object BreedingManager {
         val parentScaleModifier = scaleReferencePokemon.scaleModifier
         val effectiveParentHeight = parentSpeciesHeight * parentScaleModifier
         val normalizationDivisor = 15.0f
-        val calculatedScale = effectiveParentHeight / normalizationDivisor
-        val desiredEggScale = calculatedScale.coerceIn(0.3f, 1.2f)
-
+        val calculatedScale = (effectiveParentHeight / normalizationDivisor) * 0.5f
+        val desiredEggScale = calculatedScale.coerceIn(0.1f, 1.2f)
 
         val eggSpeciesIdentifierPath = EGG_SPECIES_ID.path
         val propertiesString = "$eggSpeciesIdentifierPath level=1 aspect=$typeAspect"
         val properties = PokemonProperties.parse(propertiesString)
-        val eggEntity = properties.createEntity(world)
 
-        if (eggEntity == null) {
-            LOGGER.error("Failed to create egg entity with properties: {}", propertiesString)
-            return false
-        }
-
+        val eggEntity =
+            properties.createEntity(world)
         val eggPokemon = eggEntity.pokemon
 
         eggPokemon.persistentData.putBoolean(EGG_NBT_KEY, true)
@@ -565,19 +623,27 @@ object BreedingManager {
         eggPokemon.persistentData.putInt(CALCULATED_IV_SPE_KEY, offspringIvs[Stats.SPEED] ?: 0)
         eggPokemon.persistentData.putString(CALCULATED_NATURE_KEY, offspringNature.name.path)
 
+        val configEggShowZeroIvs = true
+        if (configEggShowZeroIvs) {
+            eggPokemon.ivs[Stats.HP] = 0
+            eggPokemon.ivs[Stats.ATTACK] = 0
+            eggPokemon.ivs[Stats.DEFENCE] = 0
+            eggPokemon.ivs[Stats.SPECIAL_ATTACK] = 0
+            eggPokemon.ivs[Stats.SPECIAL_DEFENCE] = 0
+            eggPokemon.ivs[Stats.SPEED] = 0
+        }
+
         eggPokemon.setOriginalTrainer(player.uuid)
-        eggPokemon.nickname = Text.literal("${targetSpecies.name} Egg")
+        eggPokemon.nickname = Text.literal("Egg")
         eggPokemon.scaleModifier = desiredEggScale
 
         val spawnPosVec = pasturePos.toCenterPos()
         eggEntity.refreshPositionAndAngles(spawnPosVec.x, spawnPosVec.y, spawnPosVec.z, world.random.nextFloat() * 360.0f, 0.0f)
         val spawned = world.spawnEntity(eggEntity)
 
-        val pcStore = Cobblemon.storage.getPC(player) ?: run {
-            LOGGER.error("PC storage not found for player {} during egg creation.", player.uuid)
-            if (spawned) eggEntity.discard()
-            return false
-        }
+
+        val pcStore =
+            Cobblemon.storage.getPC(player)
         if (!pcStore.add(eggPokemon)) {
             if (spawned) eggEntity.discard()
             player.sendMessage(Text.literal("Your PC is full! Could not store the Pokémon Egg.").formatted(Formatting.YELLOW), false)
@@ -587,8 +653,10 @@ object BreedingManager {
         val newTetheringId = UUID.randomUUID()
         eggPokemon.tetheringId = newTetheringId
 
-        val eggMinRoam = pastureBlockEntity.minRoamPos ?: pastureBlockEntity.pos.add(-WALK_RADIUS, -WALK_RADIUS, -WALK_RADIUS)
-        val eggMaxRoam = pastureBlockEntity.maxRoamPos ?: pastureBlockEntity.pos.add(WALK_RADIUS, WALK_RADIUS, WALK_RADIUS)
+
+        val eggMinRoam = pastureBlockEntity.minRoamPos
+        val eggMaxRoam = pastureBlockEntity.maxRoamPos
+
 
         val eggTethering = PokemonPastureBlockEntity.Tethering(
             minRoamPos = eggMinRoam,
@@ -604,18 +672,13 @@ object BreedingManager {
         pastureBlockEntity.tetheredPokemon.add(eggTethering)
         if (spawned) {
             eggEntity.tethering = eggTethering
-        } else {
-            LOGGER.warn("Failed to spawn egg entity at {}, but data added to PC and pasture list.", pasturePos)
         }
 
         pastureBlockEntity.markDirty()
-
         eggTethering.toDTO(player)?.let { dto ->
             com.cobblemon.mod.common.CobblemonNetwork.sendPacketToPlayer(player, PokemonPasturedPacket(dto))
         }
-
         player.sendMessage(Text.literal("A Pokémon Egg has been added to the pasture!").formatted(Formatting.GREEN), false)
-
         return true
     }
 
@@ -623,9 +686,10 @@ object BreedingManager {
         val avgX = (entity1.x + entity2.x) / 2.0
         val avgZ = (entity1.z + entity2.z) / 2.0
         val avgY = (entity1.y + entity2.y) / 2.0
-
         val world = entity1.world
         val checkPos = BlockPos.Mutable(avgX.toInt(), avgY.toInt(), avgZ.toInt())
+
+
 
         for (yOff in 0..5) {
             checkPos.y = (avgY - yOff).toInt()
@@ -657,13 +721,11 @@ object BreedingManager {
                 return Vec3d(avgX, y.toDouble(), avgZ)
             }
         }
-
-        LOGGER.error("Could not find suitable meeting point near ({}, {}, {}). Using raw average Y.", avgX, avgY, avgZ)
         return Vec3d(avgX, avgY + 0.1, avgZ)
     }
 
     fun checkForInitialBreeders(world: ServerWorld, pastureBlockEntity: PokemonPastureBlockEntity, state: BreedingState) {
-        if (state.breedingStartTick != null || state.needsDurationCalc) return
+        if (state.breedingStartTick != null || state.needsDurationCalc || state.isCalculatingDuration) return
 
         val tetheredPokemonPairs = pastureBlockEntity.tetheredPokemon.mapNotNull { tether ->
             tether.getPokemon()?.let { pokemon -> Pair(tether, pokemon) }
@@ -685,13 +747,14 @@ object BreedingManager {
             potentialFemaleTether = partnerPair.first
             isDittoPairResult = true
             foundPair = true
-            LOGGER.debug("Potential initial Ditto pair found at {}: Ditto + {}", pastureBlockEntity.pos, partnerPair.second.species.name)
         }
 
         if (!foundPair) {
             val speciesMap = nonDittos.groupBy { it.second.species }
-            for ((species, tethersInSpecies) in speciesMap) {
-                if (species == null || tethersInSpecies.size < 2) continue
+
+
+            for ((_/*species*/, tethersInSpecies) in speciesMap) {
+                if (tethersInSpecies.size < 2) continue
                 val males = tethersInSpecies.filter { it.second.gender == Gender.MALE }
                 val females = tethersInSpecies.filter { it.second.gender == Gender.FEMALE }
                 if (males.isNotEmpty() && females.isNotEmpty()) {
@@ -699,7 +762,6 @@ object BreedingManager {
                     potentialFemaleTether = females.first().first
                     isDittoPairResult = false
                     foundPair = true
-                    LOGGER.debug("Potential initial standard pair found at {}: {}", pastureBlockEntity.pos, species.name)
                     break
                 }
             }
@@ -715,6 +777,7 @@ object BreedingManager {
                 state.isDittoPair = isDittoPairResult
                 state.breedingStartTick = world.time
                 state.needsDurationCalc = true
+                state.isCalculatingDuration = false
                 state.walkingStarted = false
                 state.meetingPoint = null
                 state.meetingEndTime = null
@@ -723,9 +786,6 @@ object BreedingManager {
                 state.heartsPlayed = false
                 state.breedingDurationTicks = BASE_BREEDING_DURATION_TICKS
                 state.breedingTier = 1
-                LOGGER.info("Found initial breeding pair at {} on load. Is Ditto Pair: {}. Calculation deferred.", pastureBlockEntity.pos, state.isDittoPair)
-            } else {
-                LOGGER.debug("Found initial pair data ({}) at {}, but entities missing. Skipping.", if(isDittoPairResult) "Ditto Pair" else potentialMaleTether.getPokemon()?.species?.name, pastureBlockEntity.pos)
             }
         }
     }
@@ -733,37 +793,28 @@ object BreedingManager {
     private fun addWalkGoalIfNotPresent(entity: PokemonEntity, targetPos: Vec3d) {
         val mobEntity = entity as? MobEntity ?: return
         val goalSelector = (mobEntity as? MobEntityAccessor)?.goalSelector ?: return
-
         val existingGoal = goalSelector.goals.find { wrappedGoal ->
             (wrappedGoal.goal is WalkToPositionGoal) &&
                     (wrappedGoal.goal as WalkToPositionGoal).isTarget(targetPos) &&
                     wrappedGoal.isRunning
         }
-
         if (existingGoal == null) {
             removeWalkGoal(entity)
             val newGoal = WalkToPositionGoal(mobEntity, targetPos, 1.0)
             goalSelector.add(1, newGoal)
-            LOGGER.trace("Added WalkToPositionGoal for {} to {}", entity.displayName?.string ?: "entity", targetPos)
-        } else {
-            LOGGER.trace("WalkToPositionGoal already present and active for {} to {}", entity.displayName?.string ?: "entity", targetPos)
         }
     }
 
     private fun removeWalkGoal(entity: PokemonEntity) {
         val mobEntity = entity as? MobEntity ?: return
         val goalSelector = (mobEntity as? MobEntityAccessor)?.goalSelector ?: return
-
         val goalsToRemove = goalSelector.goals.filter { it.goal is WalkToPositionGoal }
-
         if (goalsToRemove.isNotEmpty()) {
             goalsToRemove.forEach { goalSelector.remove(it.goal) }
-            LOGGER.trace("Removed WalkToPositionGoal(s) for {}", entity.displayName?.string ?: "entity")
         }
     }
 
     fun cancelBreeding(state: BreedingState, maleEntity: PokemonEntity?, femaleEntity: PokemonEntity?) {
-        val wasBreeding = state.breedingStartTick != null
         maleEntity?.let { if (!it.isRemoved) removeWalkGoal(it) }
         femaleEntity?.let { if (!it.isRemoved) removeWalkGoal(it) }
 
@@ -774,16 +825,13 @@ object BreedingManager {
         state.breedingDurationTicks = BASE_BREEDING_DURATION_TICKS
         state.breedingTier = 1
         state.needsDurationCalc = false
+        state.isCalculatingDuration = false
         state.walkingStarted = false
         state.meetingPoint = null
         state.meetingEndTime = null
         state.jumpCount = 0
         state.lastJumpTick = 0L
         state.heartsPlayed = false
-
-        if (wasBreeding) {
-            LOGGER.info("Breeding state fully reset.")
-        }
     }
 }
 
@@ -804,7 +852,6 @@ class WalkToPositionGoal(
     override fun canStart(): Boolean = true
 
     override fun start() {
-        LOGGER.trace("WalkToPositionGoal started for {} to {}", mob.displayName?.string ?: "mob", targetPos)
         mob.navigation.startMovingTo(targetPos.x, targetPos.y, targetPos.z, speed)
         stuckTicks = 0
     }
@@ -813,24 +860,19 @@ class WalkToPositionGoal(
         if (mob.world.time % BreedingManager.TICK_THROTTLE != 0L && !mob.navigation.isIdle) {
             return true
         }
-
         val distSq = mob.pos.squaredDistanceTo(targetPos)
         if (distSq <= targetReachedThresholdSq) {
-            LOGGER.trace("WalkToPositionGoal stopping for {}: Target reached.", mob.displayName?.string ?: "mob")
             return false
         }
-
         val isNavigating = !mob.navigation.isIdle
         if (!isNavigating) {
             stuckTicks += BreedingManager.TICK_THROTTLE.toInt()
             if (stuckTicks > 60) {
-                LOGGER.debug("WalkToPositionGoal stopping for {} due to stuck timeout.", mob.displayName?.string ?: "mob")
                 return false
             }
         } else {
             stuckTicks = 0
         }
-
         return true
     }
 
@@ -838,27 +880,19 @@ class WalkToPositionGoal(
         if (!mob.navigation.isIdle) {
             val currentNavTargetPos = mob.navigation.targetPos
             if (currentNavTargetPos != null && currentNavTargetPos.isWithinDistance(BlockPos.ofFloored(targetPos), 4.0)) {
-                LOGGER.trace("WalkToPositionGoal stopping navigation for {}", mob.displayName?.string ?: "mob")
                 mob.navigation.stop()
-            } else {
-                LOGGER.trace("WalkToPositionGoal stopping for {}, but navigation target ({}) is not close to goal ({}) or null, not stopping active nav.", mob.displayName?.string ?: "mob", currentNavTargetPos, targetPos)
             }
-        } else {
-            LOGGER.trace("WalkToPositionGoal stopping for {}, navigation already idle.", mob.displayName?.string ?: "mob")
         }
         stuckTicks = 0
     }
 
     override fun tick() {
         if (mob.world.time % BreedingManager.TICK_THROTTLE != 0L) return
-
         if (mob.navigation.isIdle && mob.pos.squaredDistanceTo(targetPos) > targetReachedThresholdSq) {
+
             if (stuckTicks > 20 && stuckTicks % 20 == 0 && stuckTicks <= 60) {
-                LOGGER.trace("WalkToPositionGoal retrying navigation for stuck {}", mob.displayName?.string ?: "mob")
                 mob.navigation.startMovingTo(targetPos.x, targetPos.y, targetPos.z, speed)
             }
         }
     }
-
-
 }

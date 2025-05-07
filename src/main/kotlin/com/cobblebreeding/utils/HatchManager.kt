@@ -2,7 +2,9 @@ package com.cobblebreeding.utils
 
 import com.cobblebreeding.CobblemonBreeding
 import com.cobblemon.mod.common.Cobblemon
+import com.cobblemon.mod.common.api.pokemon.Natures
 import com.cobblemon.mod.common.api.pokemon.PokemonProperties
+import com.cobblemon.mod.common.api.pokemon.PokemonSpecies
 import com.cobblemon.mod.common.api.pokemon.stats.Stats
 import com.cobblemon.mod.common.api.storage.party.PartyPosition
 import com.cobblemon.mod.common.battles.BattleRegistry
@@ -12,6 +14,7 @@ import net.minecraft.particle.ParticleTypes
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.network.ServerPlayerEntity
 import net.minecraft.server.world.ServerWorld
+import net.minecraft.util.Identifier
 import net.minecraft.sound.SoundCategory
 import net.minecraft.sound.SoundEvents
 import net.minecraft.stat.StatHandler
@@ -114,17 +117,41 @@ object HatchManager {
     }
 
     fun hatchEgg(player: ServerPlayerEntity, slotIndex: Int, eggPokemon: Pokemon) {
-        val targetSpeciesId = eggPokemon.persistentData.getString(BreedingManager.TARGET_SPECIES_NBT_KEY)
-        if (targetSpeciesId.isBlank()) {
-            Cobblemon.LOGGER.error("Egg ${eggPokemon.uuid} for player ${player.uuid} is missing target species NBT!")
+        val originalTargetSpeciesIdString = eggPokemon.persistentData.getString(BreedingManager.TARGET_SPECIES_NBT_KEY)
+        if (originalTargetSpeciesIdString.isBlank()) {
+            Cobblemon.LOGGER.error("Egg ${eggPokemon.uuid} for player ${player.uuid} is missing target species NBT! Cannot determine base evolution.")
             return
         }
 
-        val props = PokemonProperties.parse("$targetSpeciesId level=1")
+        // Resolve the initial species using its name (likely showdownId)
+        val initialSpeciesNonNull: com.cobblemon.mod.common.pokemon.Species =
+            PokemonSpecies.getByName(originalTargetSpeciesIdString.lowercase(Locale.ROOT))
+                ?: run { // Handle null case: if getByName returns null
+                    Cobblemon.LOGGER.error("Could not resolve initial species '$originalTargetSpeciesIdString' for egg ${eggPokemon.uuid}. Cannot find base evolution.")
+                    player.sendMessage(Text.literal("Error during hatching process (initial species lookup failed). Please report this.").formatted(Formatting.RED))
+                    return // Exit the function
+                }
+
+        // Now initialSpeciesNonNull is guaranteed to be non-null
+        var baseSpeciesCandidate: com.cobblemon.mod.common.pokemon.Species = initialSpeciesNonNull
+
+        // Traverse down to the base evolution
+        // If preEvoData.species is directly a Species object:
+        while (baseSpeciesCandidate.preEvolution != null) {
+            val previousSpeciesObject: com.cobblemon.mod.common.pokemon.Species = baseSpeciesCandidate.preEvolution!!.species
+            baseSpeciesCandidate = previousSpeciesObject
+        }
+        // baseSpeciesCandidate now holds the true base form.
+        val baseSpecies: com.cobblemon.mod.common.pokemon.Species = baseSpeciesCandidate
+        val finalTargetSpeciesIdForProps = baseSpecies.showdownId()
+
+        Cobblemon.LOGGER.info("Hatching egg: Original target was '$originalTargetSpeciesIdString', final base species for hatching is '${finalTargetSpeciesIdForProps}'.")
+
+        val props = PokemonProperties.parse("$finalTargetSpeciesIdForProps level=1")
         val hatchedPokemon: Pokemon = try {
             props.create()
         } catch (e: Exception) {
-            Cobblemon.LOGGER.error("Exception creating Pokemon from properties: $props for egg ${eggPokemon.uuid}", e)
+            Cobblemon.LOGGER.error("Exception creating Pokemon from properties: $props for egg ${eggPokemon.uuid} (original target: $originalTargetSpeciesIdString, base target: $finalTargetSpeciesIdForProps)", e)
             player.sendMessage(Text.literal("Error during hatching process. Please report this.").formatted(Formatting.RED))
             return
         }
@@ -137,19 +164,28 @@ object HatchManager {
         hatchedPokemon.ivs.set(Stats.SPECIAL_DEFENCE, eggPokemon.persistentData.getInt(BreedingManager.CALCULATED_IV_SPD_KEY))
         hatchedPokemon.ivs.set(Stats.SPEED, eggPokemon.persistentData.getInt(BreedingManager.CALCULATED_IV_SPE_KEY))
 
+        // Apply calculated Nature
+        val natureNamePath = eggPokemon.persistentData.getString(BreedingManager.CALCULATED_NATURE_KEY)
+        if (natureNamePath.isNotBlank()) {
+            val natureNameToLookup = natureNamePath.substringAfterLast(':')
+            Natures.getNature(natureNameToLookup)?.let {
+                hatchedPokemon.nature = it
+            } ?: Cobblemon.LOGGER.warn("Failed to apply nature '$natureNamePath' (lookup: '$natureNameToLookup') to hatched Pokemon ${hatchedPokemon.uuid}. It will have a default nature.")
+        } else {
+            Cobblemon.LOGGER.warn("CALCULATED_NATURE_KEY was blank for egg ${eggPokemon.uuid}, Pokemon will have a default nature.")
+        }
 
+        // Original Trainer
         when (eggPokemon.originalTrainerType) {
             OriginalTrainerType.PLAYER -> {
                 val ownerName: String? = eggPokemon.originalTrainerName
                 val ownerUuidString: String? = eggPokemon.originalTrainer
-
-                if (ownerName != null && ownerName.isNotEmpty()) {
+                if (ownerName?.isNotEmpty() == true) {
                     hatchedPokemon.setOriginalTrainer(ownerName)
-                } else if (ownerUuidString != null && ownerUuidString.isNotEmpty()) {
+                } else if (ownerUuidString?.isNotEmpty() == true) {
                     try {
                         val ownerUuid: UUID = UUID.fromString(ownerUuidString)
                         hatchedPokemon.setOriginalTrainer(ownerUuid)
-                        Cobblemon.LOGGER.warn("Egg ${eggPokemon.uuid} (Player OT) had missing name, set OT via UUID.")
                     } catch (e: IllegalArgumentException) {
                         Cobblemon.LOGGER.error("Failed to parse originalTrainer UUID string '$ownerUuidString' for egg ${eggPokemon.uuid} even as fallback", e)
                     }
@@ -165,18 +201,15 @@ object HatchManager {
                     Cobblemon.LOGGER.warn("Egg ${eggPokemon.uuid} has NPC OT type but null name.")
                 }
             }
-            OriginalTrainerType.NONE -> {
-                // No OT to set
-            }
-            // Handle potential future OT types gracefully
+            OriginalTrainerType.NONE -> { /* No OT to set */ }
             else -> {
                 Cobblemon.LOGGER.warn("Encountered unexpected OriginalTrainerType '${eggPokemon.originalTrainerType}' for egg ${eggPokemon.uuid}. OT not set.")
             }
         }
 
-        hatchedPokemon.nickname = null // Hatched Pokemon don't have nicknames by default
+        hatchedPokemon.nickname = null
 
-        // Clean up egg-specific NBT data from the hatched Pokemon
+        // Clean up egg-specific NBT data
         hatchedPokemon.persistentData.remove(BreedingManager.EGG_NBT_KEY)
         hatchedPokemon.persistentData.remove(BreedingManager.TARGET_SPECIES_NBT_KEY)
         hatchedPokemon.persistentData.remove(BreedingManager.TOTAL_HATCH_STEPS_KEY)
@@ -187,7 +220,7 @@ object HatchManager {
         hatchedPokemon.persistentData.remove(BreedingManager.CALCULATED_IV_SPA_KEY)
         hatchedPokemon.persistentData.remove(BreedingManager.CALCULATED_IV_SPD_KEY)
         hatchedPokemon.persistentData.remove(BreedingManager.CALCULATED_IV_SPE_KEY)
-
+        hatchedPokemon.persistentData.remove(BreedingManager.CALCULATED_NATURE_KEY)
 
         val party = Cobblemon.storage.getParty(player) ?: return
         party[PartyPosition(slotIndex)] = hatchedPokemon
@@ -196,11 +229,9 @@ object HatchManager {
         val pos = player.pos
 
         player.sendMessage(Text.literal("Oh?").formatted(Formatting.YELLOW))
-
         world.playSound(null, player.blockPos, SoundEvents.ENTITY_CHICKEN_EGG, SoundCategory.PLAYERS, 1.0f, 1.0f)
         world.spawnParticles(ParticleTypes.HAPPY_VILLAGER, pos.x, pos.y + player.standingEyeHeight * 0.7, pos.z, 20, 0.5, 0.5, 0.5, 0.1)
-
-        val message = Text.translatable("cobblemonbreeding.egg_hatched", hatchedPokemon.species.name).formatted(Formatting.GREEN)
+        val message = Text.translatable("cobblemonbreeding.egg_hatched", hatchedPokemon.species.translatedName).formatted(Formatting.GREEN)
         player.sendMessage(message)
     }
 }

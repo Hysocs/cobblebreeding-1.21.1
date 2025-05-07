@@ -1,25 +1,22 @@
 package com.cobblebreeding
 
 import com.cobblebreeding.utils.BreedingManager
-import com.cobblebreeding.utils.HatchManager // Import HatchManager
+import com.cobblebreeding.utils.HatchManager
 import com.cobblemon.mod.common.block.entity.PokemonPastureBlockEntity
 import net.fabricmc.api.ModInitializer
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents
 import net.minecraft.registry.RegistryKey
-import net.minecraft.registry.RegistryKeys
-import net.minecraft.server.MinecraftServer
 import net.minecraft.server.world.ServerWorld
 import net.minecraft.util.Identifier
 import net.minecraft.util.math.BlockPos
 import net.minecraft.util.math.Vec3d
 import net.minecraft.world.World
 import java.util.*
-import kotlin.jvm.internal.Intrinsics
-
+import java.util.concurrent.TimeUnit
 
 data class WorldBlockPos(val dimensionId: Identifier, val pos: BlockPos) {
-    constructor(worldKey: RegistryKey<World>, pos: BlockPos) : this(worldKey.value, pos)
+    constructor(worldKey: RegistryKey<World>, pos: BlockPos) : this(worldKey.value, pos.toImmutable())
 }
 
 data class BreedingState(
@@ -33,10 +30,10 @@ data class BreedingState(
     var jumpCount: Int = 0,
     var lastJumpTick: Long = 0L,
     var heartsPlayed: Boolean = false,
-    var breedingDurationTicks: Long = 0L,
+    var breedingDurationTicks: Long = BreedingManager.BASE_BREEDING_DURATION_TICKS,
     var breedingTier: Int = 1,
     var needsDurationCalc: Boolean = false,
-    var dittoUUID: UUID? = null,
+    var isCalculatingDuration: Boolean = false,
     var isDittoPair: Boolean = false
 )
 
@@ -55,7 +52,6 @@ object CobblemonBreeding : ModInitializer {
                 val worldPosKey = entry.key
                 val state = entry.value
                 val worldKey = state.worldKey
-
                 val world = worldKey?.let { server.getWorld(it) }
 
                 if (world == null) {
@@ -66,7 +62,6 @@ object CobblemonBreeding : ModInitializer {
                 val blockEntity = world.getBlockEntity(pos)
 
                 if (blockEntity !is PokemonPastureBlockEntity) {
-                    println("$PREFIX INFO: Pasture block at ${worldPosKey.dimensionId}:${pos} no longer exists or is not a pasture. Removing state.")
                     iterator.remove()
                     continue
                 }
@@ -74,8 +69,8 @@ object CobblemonBreeding : ModInitializer {
             }
 
             if (server.ticks % 20 == 0) {
-                HatchManager.tickHatchingSteps(server) // Call HatchManager function
-                HatchManager.processHatchQueue(server) // Call HatchManager function
+                HatchManager.tickHatchingSteps(server)
+                HatchManager.processHatchQueue(server)
             }
         }
 
@@ -89,13 +84,33 @@ object CobblemonBreeding : ModInitializer {
 
         ServerChunkEvents.CHUNK_UNLOAD.register { world, chunk ->
             chunk.blockEntities.keys.forEach { pos ->
-                val worldKey = world.registryKey
-                val worldPos = WorldBlockPos(worldKey, pos)
+                val worldKeyObject = world.registryKey
+                val worldPos = WorldBlockPos(worldKeyObject, pos)
                 if (pastureBreedingStates.containsKey(worldPos)) {
                     unregisterPastureOnUnload(worldPos)
                 }
             }
         }
+
+        Runtime.getRuntime().addShutdownHook(Thread {
+            println("$PREFIX Shutting down breeding calculation executor.")
+            BreedingManager.breedingCalculationExecutor.shutdown()
+            try {
+                if (!BreedingManager.breedingCalculationExecutor.awaitTermination(800, TimeUnit.MILLISECONDS)) {
+                    BreedingManager.breedingCalculationExecutor.shutdownNow()
+                }
+            } catch (e: InterruptedException) {
+                BreedingManager.breedingCalculationExecutor.shutdownNow()
+            }
+        })
+    }
+
+    fun getBreedingState(world: ServerWorld, pos: BlockPos): BreedingState? {
+        return pastureBreedingStates[WorldBlockPos(world.registryKey, pos)]
+    }
+
+    fun getBreedingState(worldPosKey: WorldBlockPos): BreedingState? {
+        return pastureBreedingStates[worldPosKey]
     }
 
     fun registerAndCheckPastureOnLoad(pastureBlockEntity: PokemonPastureBlockEntity, world: ServerWorld) {
@@ -104,27 +119,20 @@ object CobblemonBreeding : ModInitializer {
         val worldPos = WorldBlockPos(worldKey, pos)
 
         val state = pastureBreedingStates.computeIfAbsent(worldPos) {
-            println("$PREFIX INFO: Registering loaded pasture at ${worldKey.value}:${pos} for breeding checks.")
             BreedingState()
         }
         state.worldKey = worldKey
-
         BreedingManager.checkForInitialBreeders(world, pastureBlockEntity, state)
     }
 
     fun unregisterPastureOnUnload(worldPos: WorldBlockPos) {
-        val removedState = pastureBreedingStates.remove(worldPos)
-        if (removedState != null) {
-            println("$PREFIX INFO: Unregistering unloaded pasture at ${worldPos.dimensionId}:${worldPos.pos}.")
-        }
+        pastureBreedingStates.remove(worldPos)
     }
 
     fun registerNewPasture(world: ServerWorld, pos: BlockPos) {
         val worldKey = world.registryKey
         val worldPos = WorldBlockPos(worldKey, pos)
-
         val state = pastureBreedingStates.computeIfAbsent(worldPos) {
-            println("$PREFIX INFO: Registering newly placed pasture at ${worldKey.value}:${pos}.")
             BreedingState()
         }
         state.worldKey = worldKey

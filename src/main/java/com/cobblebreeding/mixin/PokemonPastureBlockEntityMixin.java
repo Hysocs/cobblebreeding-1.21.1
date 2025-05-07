@@ -28,6 +28,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
 
 import java.util.List;
+import java.util.UUID;
 
 
 @Mixin(value = PokemonPastureBlockEntity.class, remap = false)
@@ -42,6 +43,8 @@ public abstract class PokemonPastureBlockEntityMixin extends BlockEntity {
 
     @Unique private static final Logger CBMixinLogger = LoggerFactory.getLogger(CobblemonBreeding.MOD_ID + "-PastureEntityMixin");
     @Unique private static final int CUSTOM_PASTURE_RADIUS = 5;
+    @Unique private static final int CUSTOM_PASTURE_EXTRA_HEIGHT_ABOVE = 6;
+
 
     @Unique
     private void applyCustomRadius(String context) {
@@ -54,9 +57,9 @@ public abstract class PokemonPastureBlockEntityMixin extends BlockEntity {
                 currentMax != null ? currentMax.toString() : "null");
 
         this.minRoamPos = centerPos.subtract(new Vec3i(CUSTOM_PASTURE_RADIUS, CUSTOM_PASTURE_RADIUS, CUSTOM_PASTURE_RADIUS));
-        this.maxRoamPos = centerPos.add(new Vec3i(CUSTOM_PASTURE_RADIUS, CUSTOM_PASTURE_RADIUS, CUSTOM_PASTURE_RADIUS));
+        this.maxRoamPos = centerPos.add(new Vec3i(CUSTOM_PASTURE_RADIUS, CUSTOM_PASTURE_RADIUS + CUSTOM_PASTURE_EXTRA_HEIGHT_ABOVE, CUSTOM_PASTURE_RADIUS));
 
-        CBMixinLogger.info("[{}] AFTER Apply Custom Radius ({}): Min={}, Max={}", context, CUSTOM_PASTURE_RADIUS, this.minRoamPos, this.maxRoamPos);
+        CBMixinLogger.info("[{}] AFTER Apply Custom Radius (H:{}, Y_UP_Extra:{}): Min={}, Max={}", context, CUSTOM_PASTURE_RADIUS, CUSTOM_PASTURE_EXTRA_HEIGHT_ABOVE, this.minRoamPos, this.maxRoamPos);
     }
 
     @Inject(method = "<init>(Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/block/BlockState;)V", at = @At("TAIL"))
@@ -88,7 +91,7 @@ public abstract class PokemonPastureBlockEntityMixin extends BlockEntity {
             CBMixinLogger.warn("Tried to add ReturnToPastureGoal, but captured entity was null in tether method!");
         }
     }
-    //Tether again to catch race conditions so the custom radius is still applied
+
     @Inject(method = "tether", at = @At("HEAD"))
     private void cobblebreeding_onGetTetheredPokemon(CallbackInfoReturnable<List<PokemonPastureBlockEntity.Tethering>> cir) {
         applyCustomRadius("GET_TETHERED");
@@ -105,7 +108,7 @@ public abstract class PokemonPastureBlockEntityMixin extends BlockEntity {
         PokemonPastureBlockEntity targetEntity = (PokemonPastureBlockEntity) (Object) this;
         List<PokemonPastureBlockEntity.Tethering> currentTetheredPokemon = targetEntity.getTetheredPokemon();
 
-        // Allow tethering if the pasture is empty
+
         if (currentTetheredPokemon == null || currentTetheredPokemon.isEmpty()) {
             return;
         }
@@ -118,16 +121,16 @@ public abstract class PokemonPastureBlockEntityMixin extends BlockEntity {
             return;
         }
 
-        // Get properties, specifically checking for Ditto first
+
         String newSpeciesName = newPokemon.getSpecies().getName();
         boolean isNewDitto = "Ditto".equalsIgnoreCase(newSpeciesName);
 
         String firstSpeciesName = firstPokemon.getSpecies().getName();
         boolean isFirstDitto = "Ditto".equalsIgnoreCase(firstSpeciesName);
 
-        // --- Breeding Compatibility Rules ---
 
-        // Rule 1: Cannot tether two Dittos
+
+
         if (isFirstDitto && isNewDitto) {
             player.sendMessage(Text.literal("You cannot place two Dittos together for breeding.").formatted(Formatting.RED), false);
             CBMixinLogger.info("Tether cancelled: Attempted to add Ditto to existing Ditto.");
@@ -135,20 +138,20 @@ public abstract class PokemonPastureBlockEntityMixin extends BlockEntity {
             return;
         }
 
-        // Rule 2: If one is Ditto (and not both), it's always compatible (with non-Ditto M/F or non-Ditto Genderless)
+
         if (isFirstDitto || isNewDitto) {
             CBMixinLogger.info("Tether compatibility check passed: Ditto involved. First='{}'(Ditto={}), New='{}'(Ditto={})",
                     firstSpeciesName, isFirstDitto, newSpeciesName, isNewDitto);
-            return; // Allow tethering
+            return;
         }
 
-        // --- Rules for Non-Ditto pairs ---
-        // Now we know neither Pokemon is Ditto, check gender and species
+
+
 
         boolean isNewGenderless = newPokemon.getGender() == com.cobblemon.mod.common.pokemon.Gender.GENDERLESS;
         boolean isFirstGenderless = firstPokemon.getGender() == com.cobblemon.mod.common.pokemon.Gender.GENDERLESS;
 
-        // Rule 3: Cannot tether two non-Ditto Genderless Pokémon
+
         if (isFirstGenderless && isNewGenderless) {
             player.sendMessage(Text.literal("You cannot place two Genderless Pokémon together for breeding.").formatted(Formatting.RED), false);
             CBMixinLogger.info("Tether cancelled: Attempted to add non-Ditto Genderless ({}) to existing non-Ditto Genderless ({}).", newSpeciesName, firstSpeciesName);
@@ -156,8 +159,8 @@ public abstract class PokemonPastureBlockEntityMixin extends BlockEntity {
             return;
         }
 
-        // Rule 4: Cannot tether non-Ditto Genderless with non-Ditto Gendered Pokémon
-        if (isFirstGenderless || isNewGenderless) { // Uses XOR implicitly because the && case was caught above
+
+        if (isFirstGenderless || isNewGenderless) {
             player.sendMessage(Text.literal("Genderless Pokémon can only breed with Ditto.").formatted(Formatting.RED), false);
             CBMixinLogger.info("Tether cancelled: Attempted to mix non-Ditto Genderless and non-Ditto Gendered. First='{}'(Genderless={}), New='{}'(Genderless={})",
                     firstSpeciesName, isFirstGenderless, newSpeciesName, isNewGenderless);
@@ -165,8 +168,8 @@ public abstract class PokemonPastureBlockEntityMixin extends BlockEntity {
             return;
         }
 
-        // Rule 5: Cannot tether different non-Ditto, non-Genderless (i.e., Gendered M/F) species
-        // At this point, we know neither is Ditto and neither is Genderless
+
+
         if (!firstSpeciesName.equalsIgnoreCase(newSpeciesName)) {
             player.sendMessage(Text.literal("This pasture only accepts Pokémon of the same species, or compatible pairs with Ditto.").formatted(Formatting.RED), false);
             CBMixinLogger.info("Tether cancelled: Mismatched species ({} vs {}) for non-Ditto, non-Genderless pair.", firstSpeciesName, newSpeciesName);
@@ -174,7 +177,7 @@ public abstract class PokemonPastureBlockEntityMixin extends BlockEntity {
             return;
         }
 
-        // If none of the cancellation rules matched, allow the tethering (must be same species M/F pair)
+
         CBMixinLogger.info("Tether compatibility check passed: Same species M/F pair. First='{}', New='{}'", firstSpeciesName, newSpeciesName);
     }
 
